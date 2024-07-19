@@ -20,7 +20,6 @@ const UserInitials = "FD"
 const (
 	LocalDir      = "msmanager-data"
 	ArchivesDir   = "msmanager-data/archives"
-	LogsDir       = "msmanager-data/logs"
 	LabelsTable   = "msmanager-data/labels-table"
 	VersionsTable = "msmanager-data/versions-table"
 )
@@ -31,13 +30,14 @@ type LabelEntry struct {
 }
 
 type VersionsEntry struct {
-	date    string
-	time    string
-	label   string
-	version int
-	file    string
-	id      string
-	author  string
+	date     string
+	time     string
+	label    string
+	version  int
+	origFile string
+	file     string
+	author   string
+	id       string
 }
 
 func main() {
@@ -63,12 +63,10 @@ func main() {
 		printHistory()
 	case "labels":
 		printLabels()
-	case "log":
-		printLogs()
 	case "restore":
 		restoreFile(os.Args)
 	case "undo":
-		fmt.Println("undo")
+		undoUpdate()
 	default:
 		usage()
 		return
@@ -81,16 +79,15 @@ func usage() {
 	fmt.Println("  init                        Initialize a new repository")
 	fmt.Println("  track <label> <basename>    Start tracking label")
 	fmt.Println("  update <label> <file>       Updates a label with file")
-	fmt.Println("  hist                        Show history")
+	fmt.Println("  hist                        Show versions history")
 	fmt.Println("  labels                      Print tags and their base filenames")
-	fmt.Println("  log                         View commit history")
 	fmt.Println("  restore <ID>                Restore a file")
 	fmt.Println("  undo                        Undo the last update")
 	os.Exit(1)
 }
 
 func initDB() {
-	dirs := [3]string{LocalDir, ArchivesDir, LogsDir}
+	dirs := [2]string{LocalDir, ArchivesDir}
 	files := [2]string{LabelsTable, VersionsTable}
 
 	for _, d := range dirs {
@@ -131,7 +128,7 @@ func trackLabel(label string, basename string) {
 	 *  Starts tracking a label with a given basename.
 	 *
 	 *  Adds the label and basename to the labels-table
-	 *  and creates the first entry in the history-table
+	 *  and creates its first entry in the versions-table.
 	 */
 	newLabel := LabelEntry{label, basename}
 	newLabel.writeToLabelsTable()
@@ -141,8 +138,9 @@ func trackLabel(label string, basename string) {
 		label,
 		0,
 		"none",
-		"0",
 		"none",
+		"none",
+		"0",
 	}
 	newVersion.writeToVersionsTable()
 	fmt.Println("Label added.")
@@ -216,9 +214,9 @@ func handleUpdate(args []string) {
 	update(label, file)
 }
 
-func update(label string, file string) {
+func update(label string, origFile string) {
 	/*
-	 * Updates the version if LABEL using the file FILE
+	 * Updates the version of LABEL using the file ORIGFILE
 	 * 
 	 * - Calculates the sha1 of FILE and uses it as an ID.
 	 *   Check that this ID was not used (i.e., check if 
@@ -226,10 +224,9 @@ func update(label string, file string) {
 	 * - Compress the file into the ArchivesDir. The compressed
 	 *   file is named {ID}.gz
 	 * - Adds a new entry to the VersionsTable
-	 * - Adds a new log entry
-	*/	
+	 */	
 
-	id, err := calculateSha1(file)
+	id, err := calculateSha1(origFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -239,23 +236,23 @@ func update(label string, file string) {
 	}
 
 	email := getAuthorEmail()
-	if !confirmUpdate(label, file, email) {
+	if !confirmUpdate(label, origFile, email) {
 		fmt.Println("Abort.")
 		return
 	}
 
-	if err = gzipFile(file, ArchivesDir, id); err != nil {
+	if err = gzipFile(origFile, ArchivesDir, id); err != nil {
 		fmt.Println("Error: can't compress file")
 		return
 	}
 
 	versionNumber := 1 + getLastVersionNumber(label)
 	basename := getBasename(label)
-	newFilename := fmt.Sprintf("%s_%d_%s.docx", basename, versionNumber, UserInitials)
-	if err = os.Rename(file, newFilename); err != nil {
+	newFile := fmt.Sprintf("%s_%d_%s.docx", basename, versionNumber, UserInitials)
+	if err = os.Rename(origFile, newFile); err != nil {
 		log.Fatal(err)
 	} else {
-		fmt.Printf("Rename file: %s --> %s\n", file, newFilename)
+		fmt.Printf("Rename file: %s --> %s\n", origFile, newFile)
 	}
 
 	handlePreviousVersion(label)
@@ -265,12 +262,12 @@ func update(label string, file string) {
 		getTime(),
 		label,
 		versionNumber,
-		newFilename,
-		id,
+		filepath.Base(origFile),
+		newFile,
 		email,
+		id,
 	}
 	newVersion.writeToVersionsTable()
-	newVersion.writeLog(filepath.Base(file))
 }
 
 func handlePreviousVersion(label string) {
@@ -293,6 +290,10 @@ func handlePreviousVersion(label string) {
 		}
 	}
 
+	if prevFile == "none" {
+		return
+	}
+
 	sha1, err := calculateSha1(prevFile)
 	if err != nil {
 		log.Fatal(err)
@@ -310,7 +311,7 @@ func handlePreviousVersion(label string) {
 
 
 func printHistory() {
-	header := "DATE TIME LABEL VERSION FILE ID AUTHOR"
+	header := "DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID"
 	printColumns(header, VersionsTable)
 }
 
@@ -503,18 +504,25 @@ func (v VersionsEntry) writeToVersionsTable() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	/*
-	 *  The history-table has this columns:
-	 *  DATE TIME LABEL VERSION FILE ID AUTHOR
-	 */
-	fmt.Fprintf(f, "%s %s %s %d %s %s %s\n", v.date, v.time, v.label, v.version, v.file, v.id, v.author)
+	 * Version entry order:
+	 * DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID
+	*/
+	fmt.Fprintf(f, "%s %s %s %d %s %s %s %s\n", 
+		v.date, v.time, v.label, v.version, v.origFile, v.file, v.author, v.id)
 	f.Close()
 }
 
 func (v *VersionsEntry) parse(s string) {
+	/*
+	 * Version entry order:
+	 * DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID
+	*/
+
 	r := strings.NewReader(s)
-	_, err := fmt.Fscanf(r, "%s %s %s %d %s %s %s",
-		&v.date, &v.time, &v.label, &v.version, &v.file, &v.id, &v.author)
+	_, err := fmt.Fscanf(r, "%s %s %s %d %s %s %s %s",
+		&v.date, &v.time, &v.label, &v.version, &v.origFile, &v.file, &v.author, &v.id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Fscanf: %v\n", err)
 	}
@@ -531,10 +539,10 @@ func getLastVersionNumber(label string) int {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		vEntry := new(VersionsEntry)
-		vEntry.parse(scanner.Text())
-		if vEntry.label == label && vEntry.version > LastVersion {
-			LastVersion = vEntry.version
+		entry := new(VersionsEntry)
+		entry.parse(scanner.Text())
+		if entry.label == label && entry.version > LastVersion {
+			LastVersion = entry.version
 		}
 	}
 
@@ -544,42 +552,6 @@ func getLastVersionNumber(label string) int {
 	}
 
 	return LastVersion
-}
-
-func (v VersionsEntry) writeLog(oldFilename string) {
-	f, err := os.Create(filepath.Join(LogsDir, v.id))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer f.Close()
-
-	w := bufio.NewWriter(f)
-	fmt.Fprintf(w, "ID       : %s\n", v.id)
-	fmt.Fprintf(w, "Label    : %s\n", v.label)
-	fmt.Fprintf(w, "Version  : %d\n", v.version)
-	fmt.Fprintf(w, "Date     : %s\n", v.date)
-	fmt.Fprintf(w, "Time     : %s\n", v.time)
-	fmt.Fprintf(w, "Author   : %s\n", v.author)
-	fmt.Fprintf(w, "OrigFile : %s\n", oldFilename)
-	fmt.Fprintf(w, "File     : %s\n", v.file)
-	w.Flush()
-}
-
-
-func printLogs() {
-	for _, id := range getAllIds() {
-		f, err := os.Open(filepath.Join(LogsDir, id))
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer f.Close()
-	
-		_, err = io.Copy(os.Stdout, f)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println()
-	}
 }
 
 
@@ -628,7 +600,10 @@ func restoreFile(args []string) {
 
 
 func getOrigFilename(id string) string {
-	f, err := os.Open(filepath.Join(LogsDir, id))
+
+	// TODO: rewrite to use version.parse
+
+	f, err := os.Open(VersionsTable)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -636,10 +611,12 @@ func getOrigFilename(id string) string {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		if strings.HasPrefix(scanner.Text(), "OrigFile") {
-			s := strings.Split(scanner.Text(), ":")
-			return strings.Trim(s[1], " ")
-		}
+		fmt.Println("GETSHIT DONE!")
 	}
 	return ""
+}
+
+
+func undoUpdate() {
+	fmt.Println("Sin implementar jeje")		
 }

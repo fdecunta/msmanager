@@ -14,13 +14,15 @@ import (
 	"time"
 )
 
+
+const UserInitials = "FD"
+
 const (
 	LocalDir      = "msmanager-data"
 	ArchivesDir   = "msmanager-data/archives"
 	LogsDir       = "msmanager-data/logs"
 	LabelsTable   = "msmanager-data/labels-table"
 	VersionsTable = "msmanager-data/versions-table"
-	UserInitials  = "FD" // Mandar esto a un "header" que se llame config o algo asi
 )
 
 type LabelEntry struct {
@@ -124,7 +126,6 @@ func handleTrack(args []string) {
 	trackLabel(label, basename)	
 }
 
-
 func trackLabel(label string, basename string) {
 	/*
 	 *  Starts tracking a label with a given basename.
@@ -184,20 +185,17 @@ func fileExists(filePath string) bool {
 }
 
 func getDate() string {
-	currentTime := time.Now()
-	d := fmt.Sprintf("%d-%d-%d",
-		currentTime.Year(),
-		currentTime.Month(),
-		currentTime.Day())
-	return d
+	date := time.Now()
+	return date.Format("2006-01-02")
 }
 
 func getTime() string {
-	currentTime := time.Now()
-	t := fmt.Sprintf("%d:%d",
-		currentTime.Hour(),
-		currentTime.Minute())
-	return t
+	/*
+	 * This strange "15:04" is the golang way to
+	 * say hour and minutes, zero-padded
+	*/ 
+	t := time.Now()
+	return t.Format("15:04")
 }
 
 func printHistory() {
@@ -278,6 +276,7 @@ func update(label string, file string) {
 	 * - Compress the file into the ArchivesDir. The compressed
 	 *   file is named {ID}.gz
 	 * - Adds a new entry to the VersionsTable
+	 * - Adds a new log entry
 	*/	
 
 	id, err := calculateSha1(file)
@@ -301,19 +300,45 @@ func update(label string, file string) {
 	}
 
 	versionNumber := 1 + getLastVersionNumber(label)
+	basename := getBasename(label)
+	newFilename := fmt.Sprintf("%s_%d_%s.docx", basename, versionNumber, UserInitials)
+	if err = os.Rename(file, newFilename); err != nil {
+		log.Fatal(err)
+	}
+
+	//
+	// TODO: Check if the previous version was archived
+	//
+
 	newVersion := VersionsEntry{
 		getDate(),
 		getTime(),
 		label,
 		versionNumber,
-		"Sarasa.docx",
+		newFilename,
 		id,
 		email,
 	}
+
 	newVersion.writeToVersionsTable()
+	newVersion.writeLog(file)
+}
 
-	newVersion.writeLog()
+func getBasename(label string) string {
+	f, err := os.Open(LabelsTable)
+	if err != nil {
+		log.Fatal(err)		
+	}
+	defer f.Close()
 
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.Split(scanner.Text(), " ")
+		if line[0] == label {
+			return line[1]
+		}
+	}
+	return ""
 }
 
 func calculateSha1(file string) (string, error) {
@@ -488,7 +513,7 @@ func getLastVersionNumber(label string) int {
 	return LastVersion
 }
 
-func (v VersionsEntry) writeLog() {
+func (v VersionsEntry) writeLog(oldFilename string) {
 	f, err := os.Create(filepath.Join(LogsDir, v.id))
 	if err != nil {
 		log.Fatal(err)
@@ -502,7 +527,7 @@ func (v VersionsEntry) writeLog() {
 	fmt.Fprintf(w, "Date     : %s\n", v.date)
 	fmt.Fprintf(w, "Time     : %s\n", v.time)
 	fmt.Fprintf(w, "Author   : %s\n", v.author)
-	fmt.Fprintf(w, "OrigFile : ARREGLARR!!!!\n")
+	fmt.Fprintf(w, "OrigFile : %s\n", oldFilename)
 	fmt.Fprintf(w, "File     : %s\n", v.file)
 	w.Flush()
 }

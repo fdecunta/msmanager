@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"compress/gzip"
 	"crypto/sha1"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -45,21 +44,19 @@ func main() {
 		return
 	}
 
+	if !fileExists(LocalDir) && os.Args[1] != "init" {
+		fmt.Println("No repository in current directory")
+		usage()
+		return
+	}
+
 	switch os.Args[1] {
 	case "init":
 		initDB()
 	case "track":
-		if len(os.Args) != 4 {
-			fmt.Println("Missing arguments")
-			usage()
-		}
-		trackLabel(os.Args[2], os.Args[3])
+		handleTrack(os.Args)
 	case "update":
-		if len(os.Args) != 4 {
-			fmt.Println("Missing arguments")
-			usage()
-		}
-		update(os.Args[2], os.Args[3])
+		handleUpdate(os.Args)
 	case "hist":
 		printHistory()
 	case "labels":
@@ -111,21 +108,33 @@ func initDB() {
 	fmt.Println("Repository initialized.")
 }
 
-func trackLabel(label string, basename string) {
-	/*
-	 *  Starts tracking a label with a given basename.
-	 *
-	 *  Add the label and basename to the labels-table
-	 *  and create the first entry in the history-table
-	 */
+func handleTrack(args []string) {
+	if len(os.Args) != 4 {
+		fmt.Println("Missing arguments")
+		usage()
+	}
+
+	label := args[2]
+	basename := args[3]
 
 	if labelExists(label) {
 		fmt.Println("Label already exists.")
 		return
 	}
+	trackLabel(label, basename)	
+}
+
+
+func trackLabel(label string, basename string) {
+	/*
+	 *  Starts tracking a label with a given basename.
+	 *
+	 *  Adds the label and basename to the labels-table
+	 *  and creates the first entry in the history-table
+	 */
 
 	newLabel := LabelEntry{label, basename}
-	newLabel.write()
+	newLabel.writeToLabelsTable()
 
 	newVersion := VersionsEntry{
 		getDate(),
@@ -136,7 +145,7 @@ func trackLabel(label string, basename string) {
 		"0",
 		"none",
 	}
-	newVersion.write()
+	newVersion.writeToVersionsTable()
 	fmt.Println("Label added.")
 }
 
@@ -166,8 +175,12 @@ func labelExists(label string) bool {
 }
 
 func fileExists(filePath string) bool {
-	_, error := os.Stat(filePath)
-	return !errors.Is(error, os.ErrNotExist)
+	if _, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }
 
 func getDate() string {
@@ -233,7 +246,16 @@ func printColumns(header string, file string) {
 	}
 }
 
-func update(label string, file string) {
+
+func handleUpdate(args []string) {
+	if len(args) != 4 {
+		fmt.Println("Missing arguments")
+		usage()
+	}
+
+	label := args[2]
+	file := args[3]
+
 	if !labelExists(label) {
 		fmt.Fprintln(os.Stderr, "Error: Label did not exist.")
 		return
@@ -242,6 +264,21 @@ func update(label string, file string) {
 		fmt.Fprintln(os.Stderr, "Error: unable to find file.")
 		return
 	}
+
+	update(label, file)
+}
+
+func update(label string, file string) {
+	/*
+	 * Updates the version if LABEL using the file FILE
+	 * 
+	 * - Calculates the sha1 of FILE and uses it as an ID.
+	 *   Check that this ID was not used (i.e., check if 
+	 *   the file was not used)
+	 * - Compress the file into the ArchivesDir. The compressed
+	 *   file is named {ID}.gz
+	 * - Adds a new entry to the VersionsTable
+	*/	
 
 	id, err := calculateSha1(file)
 	if err != nil {
@@ -263,11 +300,7 @@ func update(label string, file string) {
 		return
 	}
 
-	/*
-	 * Add version to table
-	 */
 	versionNumber := 1 + getLastVersionNumber(label)
-
 	newVersion := VersionsEntry{
 		getDate(),
 		getTime(),
@@ -277,7 +310,7 @@ func update(label string, file string) {
 		id,
 		email,
 	}
-	newVersion.write()
+	newVersion.writeToVersionsTable()
 
 	newVersion.writeLog()
 
@@ -394,7 +427,7 @@ func gunzipFile(inputFile string, outputFile string) error {
 	return nil
 }
 
-func (l LabelEntry) write() {
+func (l LabelEntry) writeToLabelsTable() {
 	f, err := os.OpenFile(LabelsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
@@ -407,7 +440,7 @@ func (l LabelEntry) write() {
 	f.Close()
 }
 
-func (v VersionsEntry) write() {
+func (v VersionsEntry) writeToVersionsTable() {
 	f, err := os.OpenFile(VersionsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)

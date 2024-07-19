@@ -29,7 +29,7 @@ type LabelEntry struct {
 	basename string
 }
 
-type VersionsEntry struct {
+type VersionEntry struct {
 	date     string
 	time     string
 	label    string
@@ -132,7 +132,7 @@ func trackLabel(label string, basename string) {
 	 */
 	newLabel := LabelEntry{label, basename}
 	newLabel.writeToLabelsTable()
-	newVersion := VersionsEntry{
+	newVersion := VersionEntry{
 		getDate(),
 		getTime(),
 		label,
@@ -252,12 +252,12 @@ func update(label string, origFile string) {
 	if err = os.Rename(origFile, newFile); err != nil {
 		log.Fatal(err)
 	} else {
-		fmt.Printf("Rename file: %s --> %s\n", origFile, newFile)
+		fmt.Printf("Update: %s --> %s\n", origFile, newFile)
 	}
 
 	handlePreviousVersion(label)
 
-	newVersion := VersionsEntry{
+	newVersion := VersionEntry{
 		getDate(),
 		getTime(),
 		label,
@@ -282,7 +282,7 @@ func handlePreviousVersion(label string) {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		entry := new(VersionsEntry)
+		entry := new(VersionEntry)
 		entry.parse(scanner.Text())
 		if entry.label == label {
 			prevID = entry.id
@@ -305,7 +305,7 @@ func handlePreviousVersion(label string) {
 		fmt.Println("The file will not be removed")
 	} else { 
 		os.Remove(prevFile)
-		fmt.Println("Removed previous version.")
+		fmt.Println("Previous version archived.")
 	}
 }
 
@@ -499,7 +499,7 @@ func (l LabelEntry) writeToLabelsTable() {
 	f.Close()
 }
 
-func (v VersionsEntry) writeToVersionsTable() {
+func (v VersionEntry) writeToVersionsTable() {
 	f, err := os.OpenFile(VersionsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
@@ -514,7 +514,7 @@ func (v VersionsEntry) writeToVersionsTable() {
 	f.Close()
 }
 
-func (v *VersionsEntry) parse(s string) {
+func (v *VersionEntry) parse(s string) {
 	/*
 	 * Version entry order:
 	 * DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID
@@ -539,7 +539,7 @@ func getLastVersionNumber(label string) int {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		entry := new(VersionsEntry)
+		entry := new(VersionEntry)
 		entry.parse(scanner.Text())
 		if entry.label == label && entry.version > LastVersion {
 			LastVersion = entry.version
@@ -566,7 +566,7 @@ func getAllIds() []string {
 	
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		entry := new(VersionsEntry)
+		entry := new(VersionEntry)
 		entry.parse(scanner.Text())
 		if entry.version > 0 {
 			ids = append(ids, entry.id)
@@ -608,7 +608,7 @@ func getOrigFilename(id string) string {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		v := new(VersionsEntry)
+		v := new(VersionEntry)
 		v.parse(scanner.Text())
 		if v.id == id {
 			return v.origFile
@@ -621,5 +621,121 @@ func getOrigFilename(id string) string {
 
 
 func undoUpdate() {
-	fmt.Println("Sin implementar jeje")		
+	lastEntry := new(VersionEntry)	
+
+	f, err := os.Open(VersionsTable)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+	
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lastEntry.parse(scanner.Text())
+	}
+
+	/*
+	 * There are possibilities:
+	 * 1. Last action was the creation of a Label with 'track'. 
+	 *    In this case just remove the last entry from 
+	 *    the labels-table and the versions-table
+	 * 
+	 * 2. Last action was an update.	
+	 *    In this case the program must remove the current
+	 *    version and restore the previous from that label.
+	 *    To do this: 
+	 *	- Remove the archived file. Rename the current
+	 *	  version to it's original name.
+	 *	- Restore the previous version.
+	 *    Then delete the last entry from versions-table.
+	 */
+
+	if lastEntry.version == 0 {
+		if err := removeLastLine(LabelsTable); err != nil {
+			log.Fatal(err)
+		}
+		if err := removeLastLine(VersionsTable); err != nil {
+			log.Fatal(err)
+		}	
+	} else {
+		compressed_file := filepath.Join(ArchivesDir, lastEntry.id) + ".gz"
+		os.Remove(compressed_file)
+		os.Rename(lastEntry.file, lastEntry.origFile)
+		fmt.Printf("Rename: %s ---> %s\n", lastEntry.file, lastEntry.origFile)
+
+		if err := removeLastLine(VersionsTable); err != nil {
+			log.Fatal(err)
+		}
+		if lastEntry.version > 1 {
+			restoreLastVersion(lastEntry.label)
+		}
+	}
+	return
+}
+
+
+func restoreLastVersion(label string) {
+	var id string
+	var filename string
+
+	f, err := os.Open(VersionsTable)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		entry := new(VersionEntry)
+		entry.parse(scanner.Text())
+		if entry.label == label {
+			id = entry.id
+			filename = entry.file
+		}
+	}
+
+	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
+	if err = gunzipFile(compressed_file, filename); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Restore previous version: %s\n", filename)
+	return
+}
+
+func removeLastLine(tableFile string) error {
+	var lines []string
+
+	f, err := os.Open(tableFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}	
+	
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	if len(lines) == 0 {
+		return nil
+	}
+
+	lines = lines[ :len(lines)-1]
+
+	output, err := os.Create(tableFile)
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+
+	writer := bufio.NewWriter(output)
+	for _, line := range lines {
+		fmt.Fprintf(writer, "%s\n", line)
+	}
+	writer.Flush()
+	return nil
 }

@@ -66,7 +66,7 @@ func main() {
 	case "log":
 		printLogs()
 	case "restore":
-		fmt.Println("restore")
+		restoreFile(os.Args)
 	case "undo":
 		fmt.Println("undo")
 	default:
@@ -321,7 +321,7 @@ func update(label string, file string) {
 	}
 
 	newVersion.writeToVersionsTable()
-	newVersion.writeLog(file)
+	newVersion.writeLog(filepath.Base(file))
 }
 
 func getBasename(label string) string {
@@ -568,4 +568,45 @@ func getAllIds() []string {
 		}
 	}
 	return ids
+}
+
+
+func restoreFile(args []string) {
+	if len(args) < 3 {
+		fmt.Println("Missing arguments")
+		usage()
+	}
+
+	id := args[2]
+	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
+	
+	if !fileExists(compressed_file) {
+		fmt.Printf("Unable to find file: %s\n", compressed_file)
+		return
+	}
+
+	restored_file := fmt.Sprintf("restored_%s", getOrigFilename(id))
+	if err := gunzipFile(compressed_file, restored_file); err != nil {
+		fmt.Println("Error decompressing file")
+		os.Exit(1)
+	}
+	fmt.Printf("File restored: %s\n", restored_file)
+}
+
+
+func getOrigFilename(id string) string {
+	f, err := os.Open(filepath.Join(LogsDir, id))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.HasPrefix(scanner.Text(), "OrigFile") {
+			s := strings.Split(scanner.Text(), ":")
+			return strings.Trim(s[1], " ")
+		}
+	}
+	return ""
 }

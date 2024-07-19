@@ -600,9 +600,6 @@ func restoreFile(args []string) {
 
 
 func getOrigFilename(id string) string {
-
-	// TODO: rewrite to use version.parse
-
 	f, err := os.Open(VersionsTable)
 	if err != nil {
 		log.Fatal(err)
@@ -611,8 +608,14 @@ func getOrigFilename(id string) string {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		fmt.Println("GETSHIT DONE!")
+		v := new(VersionsEntry)
+		v.parse(scanner.Text())
+		if v.id == id {
+			return v.origFile
+		}
 	}
+	fmt.Printf("Error: Can't find basename in versions history for %s\n", id)
+	os.Exit(1)
 	return ""
 }
 

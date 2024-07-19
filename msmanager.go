@@ -64,7 +64,7 @@ func main() {
 	case "labels":
 		printLabels()
 	case "log":
-		fmt.Println("log!")
+		printLogs()
 	case "restore":
 		fmt.Println("restore")
 	case "undo":
@@ -530,4 +530,42 @@ func (v VersionsEntry) writeLog(oldFilename string) {
 	fmt.Fprintf(w, "OrigFile : %s\n", oldFilename)
 	fmt.Fprintf(w, "File     : %s\n", v.file)
 	w.Flush()
+}
+
+
+func printLogs() {
+	for _, id := range getAllIds() {
+		f, err := os.Open(filepath.Join(LogsDir, id))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer f.Close()
+	
+		_, err = io.Copy(os.Stdout, f)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println()
+	}
+}
+
+
+func getAllIds() []string {
+	ids := make([]string, 0)
+
+	f, err := os.Open(VersionsTable)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+	
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		entry := new(VersionsEntry)
+		entry.parse(scanner.Text())
+		if entry.version > 0 {
+			ids = append(ids, entry.id)
+		}
+	}
+	return ids
 }

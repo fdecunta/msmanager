@@ -161,9 +161,7 @@ func labelExists(label string) bool {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := scanner.Text()
-		s := strings.Split(line, " ")
-		if label == s[0] {
+		if strings.HasPrefix(scanner.Text(), label) {
 			rval = true
 			break
 		}
@@ -333,9 +331,9 @@ func getBasename(label string) string {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := strings.Split(scanner.Text(), " ")
-		if line[0] == label {
-			return line[1]
+		if strings.HasPrefix(scanner.Text(), label) {
+			fields := strings.Fields(scanner.Text())
+			return fields[1]
 		}
 	}
 	return ""

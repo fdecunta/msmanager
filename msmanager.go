@@ -133,10 +133,8 @@ func trackLabel(label string, basename string) {
 	 *  Adds the label and basename to the labels-table
 	 *  and creates the first entry in the history-table
 	 */
-
 	newLabel := LabelEntry{label, basename}
 	newLabel.writeToLabelsTable()
-
 	newVersion := VersionsEntry{
 		getDate(),
 		getTime(),
@@ -236,7 +234,7 @@ func update(label string, file string) {
 		log.Fatal(err)
 	}
 	if isArchived(id) {
-		fmt.Fprintf(os.Stderr, "Error: file was already used.\nID: %s\n", id)
+		fmt.Fprintf(os.Stderr, "Error: file already used.\nID: %s\n", id)
 		return
 	}
 
@@ -256,11 +254,11 @@ func update(label string, file string) {
 	newFilename := fmt.Sprintf("%s_%d_%s.docx", basename, versionNumber, UserInitials)
 	if err = os.Rename(file, newFilename); err != nil {
 		log.Fatal(err)
+	} else {
+		fmt.Printf("Rename file: %s --> %s\n", file, newFilename)
 	}
 
-	//
-	// TODO: Check if the previous version was archived
-	//
+	handlePreviousVersion(label)
 
 	newVersion := VersionsEntry{
 		getDate(),
@@ -271,9 +269,43 @@ func update(label string, file string) {
 		id,
 		email,
 	}
-
 	newVersion.writeToVersionsTable()
 	newVersion.writeLog(filepath.Base(file))
+}
+
+func handlePreviousVersion(label string) {
+	var prevID string
+	var prevFile string
+
+	f, err := os.Open(VersionsTable)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		entry := new(VersionsEntry)
+		entry.parse(scanner.Text())
+		if entry.label == label {
+			prevID = entry.id
+			prevFile = entry.file
+		}
+	}
+
+	sha1, err := calculateSha1(prevFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if sha1 != prevID {
+		fmt.Println("WARNING: the previous version seems to be different from the file archived")
+		fmt.Printf("sha1 from %s is different to %s\n", prevFile, prevID)
+		fmt.Println("The file will not be removed")
+	} else { 
+		os.Remove(prevFile)
+		fmt.Println("Removed previous version.")
+	}
 }
 
 
@@ -357,7 +389,7 @@ func calculateSha1(file string) (string, error) {
 }
 
 func isArchived(id string) bool {
-	archive_file := id + ".gz"
+	archive_file := filepath.Join(ArchivesDir, id) + ".gz"
 	if fileExists(archive_file) {
 		return true
 	} else {

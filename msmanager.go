@@ -248,7 +248,8 @@ func update(label string, origFile string) {
 
 	versionNumber := 1 + getLastVersionNumber(label)
 	basename := getBasename(label)
-	newFile := fmt.Sprintf("%s_%d_%s.docx", basename, versionNumber, UserInitials)
+
+	newFile := fmt.Sprintf("%s_%d_%s%s", basename, versionNumber, UserInitials, filepath.Ext(origFile))
 	if err = os.Rename(origFile, newFile); err != nil {
 		log.Fatal(err)
 	} else {

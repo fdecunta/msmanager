@@ -196,52 +196,6 @@ func getTime() string {
 	return t.Format("15:04")
 }
 
-func printHistory() {
-	header := "DATE TIME LABEL VERSION FILE ID AUTHOR"
-	printColumns(header, VersionsTable)
-}
-
-func printLabels() {
-	header := "LABEL BASENAME"
-	printColumns(header, LabelsTable)
-}
-
-func printColumns(header string, file string) {
-	cmd := exec.Command("column", "-t")
-	cmd.Stdout = os.Stdout
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer stdin.Close()
-
-	f, ferr := os.Open(file)
-	if ferr != nil {
-		log.Fatal(ferr)
-	}
-	defer f.Close()
-
-	if err := cmd.Start(); err != nil {
-		log.Fatal(err)
-	}
-
-	scanner := bufio.NewScanner(f)
-	fmt.Fprintln(stdin, header)
-	for scanner.Scan() {
-		fmt.Fprintln(stdin, scanner.Text())
-	}
-
-	if err = scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "reading file:", err)
-	}
-	if err := stdin.Close(); err != nil {
-		log.Fatal(err)
-	}
-	if err := cmd.Wait(); err != nil {
-		log.Fatal(err)
-	}
-}
-
 
 func handleUpdate(args []string) {
 	if len(args) != 4 {
@@ -321,6 +275,55 @@ func update(label string, file string) {
 	newVersion.writeToVersionsTable()
 	newVersion.writeLog(filepath.Base(file))
 }
+
+
+func printHistory() {
+	header := "DATE TIME LABEL VERSION FILE ID AUTHOR"
+	printColumns(header, VersionsTable)
+}
+
+func printLabels() {
+	header := "LABEL BASENAME"
+	printColumns(header, LabelsTable)
+}
+
+func printColumns(header string, file string) {
+	cmd := exec.Command("column", "-t")
+	cmd.Stdout = os.Stdout
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stdin.Close()
+
+	f, ferr := os.Open(file)
+	if ferr != nil {
+		log.Fatal(ferr)
+	}
+	defer f.Close()
+
+	if err := cmd.Start(); err != nil {
+		log.Fatal(err)
+	}
+
+	scanner := bufio.NewScanner(f)
+	fmt.Fprintln(stdin, header)
+	for scanner.Scan() {
+		fmt.Fprintln(stdin, scanner.Text())
+	}
+
+	if err = scanner.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "reading file:", err)
+	}
+	if err := stdin.Close(); err != nil {
+		log.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+
 
 func getBasename(label string) string {
 	f, err := os.Open(LabelsTable)

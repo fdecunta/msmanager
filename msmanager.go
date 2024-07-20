@@ -416,27 +416,6 @@ func getLastVersionNumber(label string) int {
 }
 
 
-func getAllIds() []string {
-	ids := make([]string, 0)
-
-	f, err := os.Open(VersionsTable)
-	if err != nil {
-		die(err)
-	}
-	defer f.Close()
-	
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		entry := new(VersionEntry)
-		entry.parse(scanner.Text())
-		if entry.version > 0 {
-			ids = append(ids, entry.id)
-		}
-	}
-	return ids
-}
-
-
 func restoreFile(args []string) {
 	if len(args) < 3 {
 		fmt.Println("Missing arguments")

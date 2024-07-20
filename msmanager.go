@@ -120,7 +120,6 @@ func trackLabel(args []string) {
 		fmt.Println("Label already exists.")
 		return
 	}
-	trackLabel(label, basename)	
 
 	/*
 	 *  Starts tracking a label with a given basename.
@@ -131,14 +130,14 @@ func trackLabel(args []string) {
 	newLabel := LabelEntry{label, basename}
 	newLabel.writeToLabelsTable()
 	newVersion := VersionEntry{
-		getDate(),
-		getTime(),
-		label,
-		0,
-		"none",
-		"none",
-		"none",
-		"0",
+		date:      getDate(),
+		time:      getTime(),
+		label:     label,
+		version:   0,
+		origFile:  "none",
+		file:      "none",
+		author:    "none",
+		id:        "0",
 	}
 	newVersion.writeToVersionsTable()
 	fmt.Println("Label added.")
@@ -258,14 +257,14 @@ func update(label string, origFile string) {
 	handlePreviousVersion(label)
 
 	newVersion := VersionEntry{
-		getDate(),
-		getTime(),
-		label,
-		versionNumber,
-		filepath.Base(origFile),
-		newFile,
-		email,
-		id,
+		date:     getDate(),
+		time:     getTime(),
+		label:    label,
+		version:  versionNumber,
+		origFile: filepath.Base(origFile),
+		file:     newFile,
+		author:   email,
+		id:       id,
 	}
 	newVersion.writeToVersionsTable()
 }

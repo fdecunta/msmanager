@@ -1,2 +1,4 @@
-- Replace the fileExists for errors returned by functions.
-- Replace all the log.Fatal calls. 
+- Use re readVersionsTable call
+- Stupid function gzipFile uses 3 arguments. The thirds is the ID, when it is not necesary. It should use only two: src, dst
+
+

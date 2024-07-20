@@ -2,11 +2,7 @@ package main
 
 import (
 	"bufio"
-	"compress/gzip"
-	"crypto/sha1"
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,10 +19,6 @@ const (
 	VersionsTable = "msmanager-data/versions-table"
 )
 
-type LabelEntry struct {
-	label    string
-	basename string
-}
 
 type VersionEntry struct {
 	date     string
@@ -45,8 +37,8 @@ func main() {
 		return
 	}
 
-	if !fileExists(LocalDir) && os.Args[1] != "init" {
-		fmt.Println("No repository in current directory")
+	if _, err := os.Stat(LocalDir); err != nil && os.Args[1] != "init" {
+		fmt.Printf("No repository in current directory. Use %q\n\n", "init")
 		usage()
 		return
 	}
@@ -57,7 +49,7 @@ func main() {
 	case "track":
 		trackLabel(os.Args)
 	case "update":
-		handleUpdate(os.Args)
+		updateLabel(os.Args)
 	case "hist":
 		printHistory()
 	case "labels":
@@ -82,7 +74,7 @@ func usage() {
 	fmt.Println("  labels                      Print tags and their base filenames")
 	fmt.Println("  restore <ID>                Restore a file")
 	fmt.Println("  undo                        Undo the last update")
-	os.Exit(1)
+	os.Exit(0)
 }
 
 func initDB() {
@@ -92,43 +84,52 @@ func initDB() {
 	for _, d := range dirs {
 		errd := os.Mkdir(d, 0755)
 		if errd != nil {
-			log.Fatal(errd)
+			die(errd)
 		}
 	}
 
 	for _, f := range files {
 		fptr, errf := os.Create(f)
 		if errf != nil {
-			log.Fatal(errf)
+			die(errf)
 		}
 		fptr.Close()
 	}
 	fmt.Println("Repository initialized.")
 }
 
+
 func trackLabel(args []string) {
 	if len(args) != 4 {
-		fmt.Println("Missing arguments")
+		fmt.Fprintf(os.Stderr, "Missing arguments.\n")
 		usage()
 	}
 
 	label := args[2]
 	basename := args[3]
 
-	if labelExists(label) {
-		fmt.Println("Label already exists.")
-		return
+	Labels := readLabelsTable()
+	if _, exists := Labels[label]; exists {
+		die(fmt.Errorf("Label %q already exists.", label))
 	}
 
 	/*
 	 *  Starts tracking a label with a given basename.
-	 *
 	 *  Adds the label and basename to the labels-table
 	 *  and creates its first entry in the versions-table.
 	 */
-	newLabel := LabelEntry{label, basename}
-	newLabel.writeToLabelsTable()
-	newVersion := VersionEntry{
+
+	f, err := os.OpenFile(LabelsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		die(err)
+	}
+	/*
+	 * Labels-table has two columns: LABEL BASENAME
+	 */
+	fmt.Fprintf(f, "%s %s\n", label, basename)
+	f.Close()
+
+	writeToVersionsTable(VersionEntry{
 		date:      getDate(),
 		time:      getTime(),
 		label:     label,
@@ -137,32 +138,9 @@ func trackLabel(args []string) {
 		file:      "none",
 		author:    "none",
 		id:        "0",
-	}
-	newVersion.writeToVersionsTable()
+		})
+
 	fmt.Println("Label added.")
-}
-
-func labelExists(label string) bool {
-	rval := false
-
-	f, err := os.Open(LabelsTable)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		if strings.HasPrefix(scanner.Text(), label) {
-			rval = true
-			break
-		}
-	}
-
-	if err = scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "reading history-file:", err)
-	}
-	return rval
 }
 
 func fileExists(filePath string) bool {
@@ -189,28 +167,15 @@ func getTime() string {
 }
 
 
-func handleUpdate(args []string) {
+func updateLabel(args []string) {
 	if len(args) != 4 {
 		fmt.Println("Missing arguments")
 		usage()
 	}
 
 	label := args[2]
-	file := args[3]
+	origFile := args[3]
 
-	if !labelExists(label) {
-		fmt.Fprintln(os.Stderr, "Error: Label did not exist.")
-		return
-	}
-	if !fileExists(file) {
-		fmt.Fprintln(os.Stderr, "Error: unable to find file.")
-		return
-	}
-
-	update(label, file)
-}
-
-func update(label string, origFile string) {
 	/*
 	 * Updates the version of LABEL using the file ORIGFILE
 	 * 
@@ -222,14 +187,21 @@ func update(label string, origFile string) {
 	 * - Adds a new entry to the VersionsTable
 	 */	
 
+	Basenames := readLabelsTable()
+	// Versions := readVerionsTable()
+
+	basename, ok := Basenames[label]
+	if !ok {
+		die(fmt.Errorf("no such label %q", label))
+	}
+
 	id, err := calculateSha1(origFile)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	
-	if fileExists(filepath.Join(ArchivesDir, id) + ".gz") {
-		fmt.Fprintf(os.Stderr, "Error: file already used.\nID: %s\n", id)
-		return
+	if _, err := os.Stat(filepath.Join(ArchivesDir, id) + ".gz"); err == nil {
+		die(fmt.Errorf("file already used. \nId: %s", id))
 	}
 
 	email := askAuthorEmail()
@@ -239,23 +211,23 @@ func update(label string, origFile string) {
 	}
 
 	if err = gzipFile(origFile, ArchivesDir, id); err != nil {
-		fmt.Println("Error: can't compress file")
-		return
+		die(err)
 	}
 
 	versionNumber := 1 + getLastVersionNumber(label)
-	basename := getBasename(label)
+
 
 	newFile := fmt.Sprintf("%s_%d_%s%s", basename, versionNumber, UserInitials, filepath.Ext(origFile))
 	if err = os.Rename(origFile, newFile); err != nil {
-		log.Fatal(err)
+		
+		die(err)
 	} else {
 		fmt.Printf("Update: %s --> %s\n", origFile, newFile)
 	}
 
 	handlePreviousVersion(label)
 
-	newVersion := VersionEntry{
+	writeToVersionsTable(VersionEntry{
 		date:     getDate(),
 		time:     getTime(),
 		label:    label,
@@ -263,9 +235,8 @@ func update(label string, origFile string) {
 		origFile: filepath.Base(origFile),
 		file:     newFile,
 		author:   email,
-		id:       id,
-	}
-	newVersion.writeToVersionsTable()
+		id:       id,	
+		})
 }
 
 func handlePreviousVersion(label string) {
@@ -274,7 +245,7 @@ func handlePreviousVersion(label string) {
 
 	f, err := os.Open(VersionsTable)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	defer f.Close()
 
@@ -294,7 +265,7 @@ func handlePreviousVersion(label string) {
 
 	sha1, err := calculateSha1(prevFile)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 
 	if sha1 != prevID {
@@ -323,18 +294,18 @@ func printColumns(header string, file string) {
 	cmd.Stdout = os.Stdout
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	defer stdin.Close()
 
 	f, ferr := os.Open(file)
 	if ferr != nil {
-		log.Fatal(ferr)
+		die(err)
 	}
 	defer f.Close()
 
 	if err := cmd.Start(); err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 
 	scanner := bufio.NewScanner(f)
@@ -347,10 +318,10 @@ func printColumns(header string, file string) {
 		fmt.Fprintln(os.Stderr, "reading file:", err)
 	}
 	if err := stdin.Close(); err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	if err := cmd.Wait(); err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 }
 
@@ -358,7 +329,7 @@ func printColumns(header string, file string) {
 func getBasename(label string) string {
 	f, err := os.Open(LabelsTable)
 	if err != nil {
-		log.Fatal(err)		
+		die(err)		
 	}
 	defer f.Close()
 
@@ -373,26 +344,12 @@ func getBasename(label string) string {
 }
 
 
-func calculateSha1(file string) (string, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	h := sha1.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
-}
-
 func askAuthorEmail() string {
 	fmt.Printf("Author email: ")
 	var email string
 	_, err := fmt.Scan(&email)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	return email
 }
@@ -407,7 +364,7 @@ func askConfirmation(label string, file string, email string) bool {
 	var ans string
 	_, err := fmt.Scan(&ans)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 
 	if ans == "y" || ans == "yes" {
@@ -417,91 +374,6 @@ func askConfirmation(label string, file string, email string) bool {
 	}
 }
 
-func gzipFile(inputFile, outputDir, id string) error {
-	// Open the input file
-	inFile, err := os.Open(inputFile)
-	if err != nil {
-		return err
-	}
-	defer inFile.Close()
-
-	// Create the output file
-	outputFile := filepath.Join(outputDir, id+".gz")
-	outFile, err := os.Create(outputFile)
-	if err != nil {
-		return err
-	}
-	defer outFile.Close()
-
-	// Create a gzip writer on top of the output file
-	gzipWriter := gzip.NewWriter(outFile)
-	defer gzipWriter.Close()
-
-	// Copy the input file to the gzip writer
-	if _, err := io.Copy(gzipWriter, inFile); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func gunzipFile(inputFile string, outputFile string) error {
-	// Open the input file
-	inFile, err := os.Open(inputFile)
-	if err != nil {
-		return err
-	}
-	defer inFile.Close()
-
-	// Create a gzip reader on top of the input file
-	gzipReader, err := gzip.NewReader(inFile)
-	if err != nil {
-		return err
-	}
-	defer gzipReader.Close()
-
-	// Create the output file
-	outFile, err := os.Create(outputFile)
-	if err != nil {
-		return err
-	}
-	defer outFile.Close()
-
-	// Copy the content from the gzip reader to the output file
-	if _, err := io.Copy(outFile, gzipReader); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (l LabelEntry) writeToLabelsTable() {
-	f, err := os.OpenFile(LabelsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-	/*
-	 * The labels-table has two columns:
-	 *    LABEL BASENAME
-	 */
-	fmt.Fprintf(f, "%s %s\n", l.label, l.basename)
-	f.Close()
-}
-
-func (v VersionEntry) writeToVersionsTable() {
-	f, err := os.OpenFile(VersionsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	/*
-	 * Version entry order:
-	 * DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID
-	*/
-	fmt.Fprintf(f, "%s %s %s %d %s %s %s %s\n", 
-		v.date, v.time, v.label, v.version, v.origFile, v.file, v.author, v.id)
-	f.Close()
-}
 
 func (v *VersionEntry) parse(s string) {
 	/*
@@ -522,7 +394,7 @@ func getLastVersionNumber(label string) int {
 
 	f, err := os.Open(VersionsTable)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	defer f.Close()
 
@@ -537,7 +409,7 @@ func getLastVersionNumber(label string) int {
 
 	if err = scanner.Err(); err != nil {
 		fmt.Fprintln(os.Stderr, "reading versions-table in getLastVersionNumber():", err)
-		log.Fatal(err)
+		die(err)
 	}
 
 	return LastVersion
@@ -549,7 +421,7 @@ func getAllIds() []string {
 
 	f, err := os.Open(VersionsTable)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	defer f.Close()
 	
@@ -570,19 +442,11 @@ func restoreFile(args []string) {
 		fmt.Println("Missing arguments")
 		usage()
 	}
-
 	id := args[2]
 	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
-	
-	if !fileExists(compressed_file) {
-		fmt.Printf("Unable to find file: %s\n", compressed_file)
-		return
-	}
-
 	restored_file := fmt.Sprintf("restored_%s", getOrigFilename(id))
 	if err := gunzipFile(compressed_file, restored_file); err != nil {
-		fmt.Println("Error decompressing file")
-		os.Exit(1)
+		die(err)
 	}
 	fmt.Printf("File restored: %s\n", restored_file)
 }
@@ -591,7 +455,7 @@ func restoreFile(args []string) {
 func getOrigFilename(id string) string {
 	f, err := os.Open(VersionsTable)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	defer f.Close()
 
@@ -614,7 +478,7 @@ func undoUpdate() {
 
 	f, err := os.Open(VersionsTable)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	defer f.Close()
 	
@@ -641,10 +505,10 @@ func undoUpdate() {
 
 	if lastEntry.version == 0 {
 		if err := removeLastLine(LabelsTable); err != nil {
-			log.Fatal(err)
+			die(err)
 		}
 		if err := removeLastLine(VersionsTable); err != nil {
-			log.Fatal(err)
+			die(err)
 		}	
 	} else {
 		compressed_file := filepath.Join(ArchivesDir, lastEntry.id) + ".gz"
@@ -653,7 +517,7 @@ func undoUpdate() {
 		fmt.Printf("Rename: %s ---> %s\n", lastEntry.file, lastEntry.origFile)
 
 		if err := removeLastLine(VersionsTable); err != nil {
-			log.Fatal(err)
+			die(err)
 		}
 		if lastEntry.version > 1 {
 			restoreLastVersion(lastEntry.label)
@@ -669,7 +533,7 @@ func restoreLastVersion(label string) {
 
 	f, err := os.Open(VersionsTable)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	defer f.Close()
 
@@ -685,7 +549,7 @@ func restoreLastVersion(label string) {
 
 	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
 	if err = gunzipFile(compressed_file, filename); err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	fmt.Printf("Restore previous version: %s\n", filename)
 	return
@@ -714,7 +578,6 @@ func removeLastLine(tableFile string) error {
 	}
 
 	lines = lines[ :len(lines)-1]
-
 	output, err := os.Create(tableFile)
 	if err != nil {
 		return err
@@ -727,4 +590,26 @@ func removeLastLine(tableFile string) error {
 	}
 	writer.Flush()
 	return nil
+}
+
+
+func readVersionsTable() []*VersionEntry {
+	var allVersions []*VersionEntry
+
+	f, err := os.Open(VersionsTable)
+	if err != nil {
+		die(err)
+	}
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		v := new(VersionEntry)
+		v.parse(scanner.Text())
+		allVersions = append(allVersions, v)
+	}
+	if err := scanner.Err(); err != nil {
+		die(err)
+	}
+
+	return allVersions
 }

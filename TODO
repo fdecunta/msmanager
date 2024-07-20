@@ -1,0 +1,2 @@
+- Replace the fileExists for errors returned by functions.
+- Replace all the log.Fatal calls. 

@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-
 const UserInitials = "FD"
 
 const (
@@ -108,7 +107,7 @@ func initDB() {
 }
 
 func trackLabel(args []string) {
-	if len(os.Args) != 4 {
+	if len(args) != 4 {
 		fmt.Println("Missing arguments")
 		usage()
 	}

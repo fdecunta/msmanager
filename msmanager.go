@@ -56,7 +56,7 @@ func main() {
 	case "init":
 		initDB()
 	case "track":
-		handleTrack(os.Args)
+		trackLabel(os.Args)
 	case "update":
 		handleUpdate(os.Args)
 	case "hist":
@@ -107,7 +107,7 @@ func initDB() {
 	fmt.Println("Repository initialized.")
 }
 
-func handleTrack(args []string) {
+func trackLabel(args []string) {
 	if len(os.Args) != 4 {
 		fmt.Println("Missing arguments")
 		usage()
@@ -121,9 +121,7 @@ func handleTrack(args []string) {
 		return
 	}
 	trackLabel(label, basename)	
-}
 
-func trackLabel(label string, basename string) {
 	/*
 	 *  Starts tracking a label with a given basename.
 	 *
@@ -230,13 +228,14 @@ func update(label string, origFile string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if isArchived(id) {
+	
+	if fileExists(filepath.Join(ArchivesDir, id) + ".gz") {
 		fmt.Fprintf(os.Stderr, "Error: file already used.\nID: %s\n", id)
 		return
 	}
 
-	email := getAuthorEmail()
-	if !confirmUpdate(label, origFile, email) {
+	email := askAuthorEmail()
+	if !askConfirmation(label, origFile, email) {
 		fmt.Println("Abort.")
 		return
 	}
@@ -358,7 +357,6 @@ func printColumns(header string, file string) {
 }
 
 
-
 func getBasename(label string) string {
 	f, err := os.Open(LabelsTable)
 	if err != nil {
@@ -376,6 +374,7 @@ func getBasename(label string) string {
 	return ""
 }
 
+
 func calculateSha1(file string) (string, error) {
 	f, err := os.Open(file)
 	if err != nil {
@@ -390,16 +389,7 @@ func calculateSha1(file string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-func isArchived(id string) bool {
-	archive_file := filepath.Join(ArchivesDir, id) + ".gz"
-	if fileExists(archive_file) {
-		return true
-	} else {
-		return false
-	}
-}
-
-func getAuthorEmail() string {
+func askAuthorEmail() string {
 	fmt.Printf("Author email: ")
 	var email string
 	_, err := fmt.Scan(&email)
@@ -409,7 +399,7 @@ func getAuthorEmail() string {
 	return email
 }
 
-func confirmUpdate(label string, file string, email string) bool {
+func askConfirmation(label string, file string, email string) bool {
 	fmt.Println()
 	fmt.Printf("Label: %s\n", label)
 	fmt.Printf("File : %s\n", file)

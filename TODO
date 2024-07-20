@@ -1,1 +1,0 @@
-- Replace isArchived(id) for fileExists(filepath.Join(ArchivesDir, id) + ".gz")

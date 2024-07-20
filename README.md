@@ -5,6 +5,6 @@
 ```
 git clone https://github.com/fdecunta/go-msmanager
 cd go-msmanager
-go build
+sudo make install
 ```
 

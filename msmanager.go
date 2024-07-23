@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-
 	"path/filepath"
-	"strings"
 )
 
 const UserInitials = "FD"
@@ -48,19 +45,6 @@ func main() {
 	default:
 		usage()
 	}
-}
-
-func usage() {
-	fmt.Println("usage: msmanager")
-	fmt.Println("Commands:")
-	fmt.Println("  init                        Initialize a new repository")
-	fmt.Println("  track <label> <basename>    Start tracking label, naming files with <basename>")
-	fmt.Println("  update <label> <file>       Update version of label with file")
-	fmt.Println("  hist                        Show versions history")
-	fmt.Println("  labels                      Print labels and their basenames")
-	fmt.Println("  restore <ID>                Restore a file")
-	fmt.Println("  undo                        Undo the last command")
-	os.Exit(0)
 }
 
 func initDB() {
@@ -128,8 +112,8 @@ func updateLabel(args []string) {
 	 * - The input file was not used before
 	 * - The previous version was not modified. If it was, don't delete it
 	 *
-	 * If everything is ok, archive the input file, rename the input file using 
-	 * the filename corresponding to the label, and add an entry to the 
+	 * If everything is ok, archive the input file, rename the input file using
+	 * the filename corresponding to the label, and add an entry to the
 	 * versions table.
 	 */
 
@@ -176,7 +160,7 @@ func updateLabel(args []string) {
 		if lastVersionFile != "none" {
 			os.Remove(lastVersionFile)
 		}
-	}		
+	}
 
 	writeToVersionsTable(Version{
 		date:          getDate(),
@@ -191,32 +175,6 @@ func updateLabel(args []string) {
 	fmt.Printf("Update: %s --> %s\n", origFile, newVersionFile)
 }
 
-
-func isLastVersionChanged(label string) (prevFile string, err error) {
-	/*
-	 * Check if the file of the previous version is equal to the one archived.
-	 * This is done by comparing the sha1 of the file with the id of the archive.
-	 * If the file was changed, don't remove it
-	 */
-
-	var prevID string
-	for _, v := range readVersionsTable() {
-		if v.label == label {
-			prevID = v.id
-			prevFile = v.file
-		}
-	}
-
-	if prevFile == "none" {
-		return
-	}
-
-	if prevID != calculateSha1(prevFile) {
-		err = fmt.Errorf("WARNING: %s is different from the archived version.", prevFile)
-	} 
-	return 
-}
-
 func printHistory() {
 	header := "DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID"
 	printColumns(header, VersionsTable)
@@ -227,39 +185,13 @@ func printLabels() {
 	printColumns(header, LabelsTable)
 }
 
-
-func (v *Version) parse(s string) {
-	/*
-	 * Version entry order:
-	 * DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID
-	 */
-
-	r := strings.NewReader(s)
-	_, err := fmt.Fscanf(r, "%s %s %s %d %s %s %s %s",
-		&v.date, &v.time, &v.label, &v.versionNumber, &v.origFile, &v.file, &v.author, &v.id)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Fscanf: %v\n", err)
-	}
-}
-
-
-func getLastVersionNumber(label string) (lastVersion int) {
-	versionsTable := readVersionsTable()
-	for _, v := range versionsTable {
-		if v.label == "main" {
-			lastVersion = v.versionNumber
-		}
-	}
-	return 
-}
-
 func restoreFile(args []string) {
 	if len(args) < 3 {
 		fmt.Println("Missing arguments")
 		usage()
 	}
 	id := args[2]
-	
+
 	var origFile string
 	for _, v := range readVersionsTable() {
 		if v.id == id {
@@ -280,7 +212,6 @@ func restoreFile(args []string) {
 	fmt.Printf("File restored: %s\n", restored_file)
 }
 
-
 func undoUpdate() {
 
 	/*
@@ -300,7 +231,7 @@ func undoUpdate() {
 	 */
 
 	versionsTable := readVersionsTable()
-	lastEntry := versionsTable[len(versionsTable) - 1]
+	lastEntry := versionsTable[len(versionsTable)-1]
 
 	if lastEntry.versionNumber == 0 {
 		if err := removeLastLine(LabelsTable); err != nil {
@@ -325,67 +256,15 @@ func undoUpdate() {
 	return
 }
 
-func restoreLastVersion(label string) {
-	var id string
-	var filename string
-
-	f, err := os.Open(VersionsTable)
-	if err != nil {
-		die(err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		entry := new(Version)
-		entry.parse(scanner.Text())
-		if entry.label == label {
-			id = entry.id
-			filename = entry.file
-		}
-	}
-
-	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
-	if err = decompress(compressed_file, filename); err != nil {
-		die(err)
-	}
-	fmt.Printf("Restore previous version: %s\n", filename)
-	return
-}
-
-func removeLastLine(tableFile string) error {
-	var lines []string
-
-	f, err := os.Open(tableFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-
-	if len(lines) == 0 {
-		return nil
-	}
-
-	lines = lines[:len(lines)-1]
-	output, err := os.Create(tableFile)
-	if err != nil {
-		return err
-	}
-	defer output.Close()
-
-	writer := bufio.NewWriter(output)
-	for _, line := range lines {
-		fmt.Fprintf(writer, "%s\n", line)
-	}
-	writer.Flush()
-	return nil
+func usage() {
+	fmt.Println("usage: msmanager")
+	fmt.Println("Commands:")
+	fmt.Println("  init                        Initialize a new repository")
+	fmt.Println("  track <label> <basename>    Start tracking label, naming files with <basename>")
+	fmt.Println("  update <label> <file>       Update version of label with file")
+	fmt.Println("  hist                        Show versions history")
+	fmt.Println("  labels                      Print labels and their basenames")
+	fmt.Println("  restore <ID>                Restore a file")
+	fmt.Println("  undo                        Undo the last command")
+	os.Exit(0)
 }

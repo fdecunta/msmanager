@@ -1,2 +1,0 @@
-- readLabelsTable names "labels" the map. But in fact it maps basenames, so the name is not good.
-- Use re readVersionsTable call

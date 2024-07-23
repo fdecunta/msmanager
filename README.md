@@ -3,8 +3,8 @@
 ## Installation
 
 ```
-git clone https://github.com/fdecunta/go-msmanager
-cd go-msmanager
+git clone https://github.com/fdecunta/msmanager
+cd msmanager
 sudo make install
 ```
 

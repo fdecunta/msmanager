@@ -24,11 +24,6 @@ type Version struct {
 	id            string
 }
 
-type Archive struct {
-	id   string
-	file   string
-}
-
 
 func calculateSha1(file string) (string) {
 	f, err := os.Open(file)
@@ -238,9 +233,8 @@ func askConfirmation(label string, file string, email string) bool {
 
 	if ans == "y" || ans == "yes" {
 		return true
-	} else {
-		return false
-	}
+	} 
+	return false
 }
 
 
@@ -285,7 +279,6 @@ func isLastVersionChanged(label string) (prevFile string, err error) {
 			prevFile = v.file
 		}
 	}
-
 	if prevFile == "none" {
 		return
 	}
@@ -300,20 +293,10 @@ func isLastVersionChanged(label string) (prevFile string, err error) {
 func restoreLastVersion(label string) {
 	var id string
 	var filename string
-
-	f, err := os.Open(VersionsTable)
-	if err != nil {
-		die(err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		entry := new(Version)
-		entry.parse(scanner.Text())
-		if entry.label == label {
-			id = entry.id
-			filename = entry.file
+	for _, version := range readVersionsTable()
+		if version.label == label {
+			id = version.id
+			filename = version.file
 		}
 	}
 

@@ -20,16 +20,17 @@ const (
 )
 
 
-type VersionEntry struct {
-	date     string
-	time     string
-	label    string
-	version  int
-	origFile string
-	file     string
-	author   string
-	id       string
+type Version struct {
+	date           string
+	time           string
+	label          string
+	versionNumber  int
+	origFile       string
+	file           string
+	author         string
+	id             string
 }
+
 
 func main() {
 	if len(os.Args) == 1 {
@@ -64,34 +65,36 @@ func main() {
 	}
 }
 
+
 func usage() {
 	fmt.Println("usage: msmanager")
 	fmt.Println("Commands:")
 	fmt.Println("  init                        Initialize a new repository")
-	fmt.Println("  track <label> <basename>    Start tracking label")
-	fmt.Println("  update <label> <file>       Updates a label with file")
+	fmt.Println("  track <label> <basename>    Start tracking label, naming files with <basename>")
+	fmt.Println("  update <label> <file>       Update version of label with file")
 	fmt.Println("  hist                        Show versions history")
-	fmt.Println("  labels                      Print tags and their base filenames")
+	fmt.Println("  labels                      Print labels and their basenames")
 	fmt.Println("  restore <ID>                Restore a file")
-	fmt.Println("  undo                        Undo the last update")
+	fmt.Println("  undo                        Undo the last command")
 	os.Exit(0)
 }
 
+
 func initDB() {
-	dirs := [2]string{LocalDir, ArchivesDir}
+	dirs  := [2]string{LocalDir, ArchivesDir}
 	files := [2]string{LabelsTable, VersionsTable}
 
 	for _, d := range dirs {
-		errd := os.Mkdir(d, 0755)
-		if errd != nil {
-			die(errd)
+		err := os.Mkdir(d, 0755)
+		if err != nil {
+			die(err)
 		}
 	}
 
 	for _, f := range files {
-		fptr, errf := os.Create(f)
-		if errf != nil {
-			die(errf)
+		fptr, err := os.Create(f)
+		if err != nil {
+			die(err)
 		}
 		fptr.Close()
 	}
@@ -129,11 +132,11 @@ func trackLabel(args []string) {
 	fmt.Fprintf(f, "%s %s\n", label, basename)
 	f.Close()
 
-	writeToVersionsTable(VersionEntry{
+	writeToVersionsTable(Version{
 		date:      getDate(),
 		time:      getTime(),
 		label:     label,
-		version:   0,
+		versionNumber:   0,
 		origFile:  "none",
 		file:      "none",
 		author:    "none",
@@ -210,7 +213,7 @@ func updateLabel(args []string) {
 		return
 	}
 
-	if err = gzipFile(origFile, ArchivesDir, id); err != nil {
+	if err = compress(origFile, filepath.Join(ArchivesDir, id) + ".gz"); err != nil {
 		die(err)
 	}
 
@@ -227,11 +230,11 @@ func updateLabel(args []string) {
 
 	handlePreviousVersion(label)
 
-	writeToVersionsTable(VersionEntry{
+	writeToVersionsTable(Version{
 		date:     getDate(),
 		time:     getTime(),
 		label:    label,
-		version:  versionNumber,
+		versionNumber:  versionNumber,
 		origFile: filepath.Base(origFile),
 		file:     newFile,
 		author:   email,
@@ -251,7 +254,7 @@ func handlePreviousVersion(label string) {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		entry := new(VersionEntry)
+		entry := new(Version)
 		entry.parse(scanner.Text())
 		if entry.label == label {
 			prevID = entry.id
@@ -375,7 +378,7 @@ func askConfirmation(label string, file string, email string) bool {
 }
 
 
-func (v *VersionEntry) parse(s string) {
+func (v *Version) parse(s string) {
 	/*
 	 * Version entry order:
 	 * DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID
@@ -383,7 +386,7 @@ func (v *VersionEntry) parse(s string) {
 
 	r := strings.NewReader(s)
 	_, err := fmt.Fscanf(r, "%s %s %s %d %s %s %s %s",
-		&v.date, &v.time, &v.label, &v.version, &v.origFile, &v.file, &v.author, &v.id)
+		&v.date, &v.time, &v.label, &v.versionNumber, &v.origFile, &v.file, &v.author, &v.id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Fscanf: %v\n", err)
 	}
@@ -400,10 +403,10 @@ func getLastVersionNumber(label string) int {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		entry := new(VersionEntry)
+		entry := new(Version)
 		entry.parse(scanner.Text())
-		if entry.label == label && entry.version > LastVersion {
-			LastVersion = entry.version
+		if entry.label == label && entry.versionNumber > LastVersion {
+			LastVersion = entry.versionNumber
 		}
 	}
 
@@ -424,7 +427,7 @@ func restoreFile(args []string) {
 	id := args[2]
 	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
 	restored_file := fmt.Sprintf("restored_%s", getOrigFilename(id))
-	if err := gunzipFile(compressed_file, restored_file); err != nil {
+	if err := decompress(compressed_file, restored_file); err != nil {
 		die(err)
 	}
 	fmt.Printf("File restored: %s\n", restored_file)
@@ -440,7 +443,7 @@ func getOrigFilename(id string) string {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		v := new(VersionEntry)
+		v := new(Version)
 		v.parse(scanner.Text())
 		if v.id == id {
 			return v.origFile
@@ -453,7 +456,7 @@ func getOrigFilename(id string) string {
 
 
 func undoUpdate() {
-	lastEntry := new(VersionEntry)	
+	lastEntry := new(Version)	
 
 	f, err := os.Open(VersionsTable)
 	if err != nil {
@@ -482,7 +485,7 @@ func undoUpdate() {
 	 *    Then delete the last entry from versions-table.
 	 */
 
-	if lastEntry.version == 0 {
+	if lastEntry.versionNumber == 0 {
 		if err := removeLastLine(LabelsTable); err != nil {
 			die(err)
 		}
@@ -498,7 +501,7 @@ func undoUpdate() {
 		if err := removeLastLine(VersionsTable); err != nil {
 			die(err)
 		}
-		if lastEntry.version > 1 {
+		if lastEntry.versionNumber > 1 {
 			restoreLastVersion(lastEntry.label)
 		}
 	}
@@ -518,7 +521,7 @@ func restoreLastVersion(label string) {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		entry := new(VersionEntry)
+		entry := new(Version)
 		entry.parse(scanner.Text())
 		if entry.label == label {
 			id = entry.id
@@ -527,7 +530,7 @@ func restoreLastVersion(label string) {
 	}
 
 	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
-	if err = gunzipFile(compressed_file, filename); err != nil {
+	if err = decompress(compressed_file, filename); err != nil {
 		die(err)
 	}
 	fmt.Printf("Restore previous version: %s\n", filename)
@@ -572,8 +575,8 @@ func removeLastLine(tableFile string) error {
 }
 
 
-func readVersionsTable() []*VersionEntry {
-	var allVersions []*VersionEntry
+func readVersionsTable() []*Version {
+	var allVersions []*Version
 
 	f, err := os.Open(VersionsTable)
 	if err != nil {
@@ -582,7 +585,7 @@ func readVersionsTable() []*VersionEntry {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		v := new(VersionEntry)
+		v := new(Version)
 		v.parse(scanner.Text())
 		allVersions = append(allVersions, v)
 	}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -29,7 +28,7 @@ func readLabelsTable() map[string]string {
 }
 
 
-func writeToVersionsTable(v VersionEntry) {
+func writeToVersionsTable(v Version) {
 	f, err := os.OpenFile(VersionsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		die(err)
@@ -39,11 +38,11 @@ func writeToVersionsTable(v VersionEntry) {
 	 * Version entry order:
 	 * DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID
 	*/
+
 	fmt.Fprintf(f, "%s %s %s %d %s %s %s %s\n", 
-		v.date, v.time, v.label, v.version, v.origFile, v.file, v.author, v.id)
+		v.date, v.time, v.label, v.versionNumber, v.origFile, v.file, v.author, v.id)
 	f.Close()
 }
-
 
 
 func calculateSha1(file string) (string, error) {
@@ -61,20 +60,19 @@ func calculateSha1(file string) (string, error) {
 }
 
 
-
 func die(err error) {
 	fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 	os.Exit(1)
 }
 
-func gzipFile(inputFile, outputDir, id string) error {
+
+func compress(inputFile, outputFile string) error {
 	inFile, err := os.Open(inputFile)
 	if err != nil {
 		return err
 	}
 	defer inFile.Close()
 
-	outputFile := filepath.Join(outputDir, id+".gz")
 	outFile, err := os.Create(outputFile)
 	if err != nil {
 		return err
@@ -91,7 +89,7 @@ func gzipFile(inputFile, outputDir, id string) error {
 	return nil
 }
 
-func gunzipFile(inputFile string, outputFile string) error {
+func decompress(inputFile string, outputFile string) error {
 	inFile, err := os.Open(inputFile)
 	if err != nil {
 		return err

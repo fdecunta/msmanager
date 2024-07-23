@@ -18,18 +18,16 @@ const (
 	VersionsTable = "msmanager-data/versions-table"
 )
 
-
 type Version struct {
-	date           string
-	time           string
-	label          string
-	versionNumber  int
-	origFile       string
-	file           string
-	author         string
-	id             string
+	date          string
+	time          string
+	label         string
+	versionNumber int
+	origFile      string
+	file          string
+	author        string
+	id            string
 }
-
 
 func main() {
 	if len(os.Args) == 1 {
@@ -63,7 +61,6 @@ func main() {
 	}
 }
 
-
 func usage() {
 	fmt.Println("usage: msmanager")
 	fmt.Println("Commands:")
@@ -77,9 +74,8 @@ func usage() {
 	os.Exit(0)
 }
 
-
 func initDB() {
-	dirs  := [2]string{LocalDir, ArchivesDir}
+	dirs := [2]string{LocalDir, ArchivesDir}
 	files := [2]string{LabelsTable, VersionsTable}
 
 	for _, d := range dirs {
@@ -98,7 +94,6 @@ func initDB() {
 	}
 	fmt.Println("Repository initialized.")
 }
-
 
 func trackLabel(args []string) {
 
@@ -131,32 +126,31 @@ func trackLabel(args []string) {
 	f.Close()
 
 	writeToVersionsTable(Version{
-		date:            getDate(),
-		time:            getTime(),
-		label:           label,
-		versionNumber:   0,
-		origFile:        "none",
-		file:            "none",
-		author:          "none",
-		id:              "none",
-		})
+		date:          getDate(),
+		time:          getTime(),
+		label:         label,
+		versionNumber: 0,
+		origFile:      "none",
+		file:          "none",
+		author:        "none",
+		id:            "none",
+	})
 
 	fmt.Println("Label added.")
 }
-
 
 func updateLabel(args []string) {
 
 	/*
 	 * Updates the version of LABEL using the file ORIGFILE
-	 * 
+	 *
 	 * - Calculate the sha1 of ORIGFILE and uses it as an ID.
-	 *   Check that this ID was not used (i.e., check that 
+	 *   Check that this ID was not used (i.e., check that
 	 *   the file was not used)
 	 * - Compress the file into the ArchivesDir. The compressed
 	 *   file is named {ID}.gz
 	 * - Adds a new entry to the VersionsTable
-	 */	
+	 */
 
 	if len(args) != 4 {
 		fmt.Println("Missing arguments")
@@ -178,7 +172,7 @@ func updateLabel(args []string) {
 	if err != nil {
 		die(err)
 	}
-	
+
 	if _, err := os.Stat(filepath.Join(ArchivesDir, id) + ".gz"); err == nil {
 		die(fmt.Errorf("file already used. \nId: %s", id))
 	}
@@ -189,29 +183,29 @@ func updateLabel(args []string) {
 		return
 	}
 
-	if err = compress(origFile, filepath.Join(ArchivesDir, id) + ".gz"); err != nil {
+	if err = compress(origFile, filepath.Join(ArchivesDir, id)+".gz"); err != nil {
 		die(err)
 	}
 
 	versionNumber := 1 + getLastVersionNumber(label)
 
 	newFile := fmt.Sprintf("%s_%d_%s%s", basename, versionNumber, UserInitials, filepath.Ext(origFile))
-	if err = os.Rename(origFile, newFile); err != nil {		
+	if err = os.Rename(origFile, newFile); err != nil {
 		die(err)
-	} 
+	}
 
 	handlePreviousVersion(label)
 
 	writeToVersionsTable(Version{
-		date:           getDate(),
-		time:           getTime(),
-		label:          label,
-		versionNumber:  versionNumber,
-		origFile:       filepath.Base(origFile),
-		file:           newFile,
-		author:         email,
-		id:             id,	
-		})
+		date:          getDate(),
+		time:          getTime(),
+		label:         label,
+		versionNumber: versionNumber,
+		origFile:      filepath.Base(origFile),
+		file:          newFile,
+		author:        email,
+		id:            id,
+	})
 
 	fmt.Printf("Update: %s --> %s\n", origFile, newFile)
 }
@@ -249,12 +243,11 @@ func handlePreviousVersion(label string) {
 		fmt.Println("WARNING: the previous version seems to be different from the file archived")
 		fmt.Printf("sha1 from %s is different to %s\n", prevFile, prevID)
 		fmt.Println("The file will not be removed")
-	} else { 
+	} else {
 		os.Remove(prevFile)
 		fmt.Println("Previous version archived.")
 	}
 }
-
 
 func printHistory() {
 	header := "DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID"
@@ -302,7 +295,6 @@ func printColumns(header string, file string) {
 	}
 }
 
-
 func askAuthorEmail() (email string) {
 	fmt.Printf("Author email: ")
 	_, err := fmt.Scan(&email)
@@ -332,12 +324,11 @@ func askConfirmation(label string, file string, email string) bool {
 	}
 }
 
-
 func (v *Version) parse(s string) {
 	/*
 	 * Version entry order:
 	 * DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID
-	*/
+	 */
 
 	r := strings.NewReader(s)
 	_, err := fmt.Fscanf(r, "%s %s %s %d %s %s %s %s",
@@ -367,9 +358,8 @@ func getLastVersionNumber(label string) (LastVersion int) {
 		fmt.Fprintln(os.Stderr, "reading versions-table in getLastVersionNumber():", err)
 		die(err)
 	}
-	return 
+	return
 }
-
 
 func restoreFile(args []string) {
 	if len(args) < 3 {
@@ -384,7 +374,6 @@ func restoreFile(args []string) {
 	}
 	fmt.Printf("File restored: %s\n", restored_file)
 }
-
 
 func getOrigFilename(id string) string {
 	f, err := os.Open(VersionsTable)
@@ -406,16 +395,15 @@ func getOrigFilename(id string) string {
 	return ""
 }
 
-
 func undoUpdate() {
-	lastEntry := new(Version)	
+	lastEntry := new(Version)
 
 	f, err := os.Open(VersionsTable)
 	if err != nil {
 		die(err)
 	}
 	defer f.Close()
-	
+
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		lastEntry.parse(scanner.Text())
@@ -423,14 +411,14 @@ func undoUpdate() {
 
 	/*
 	 * There are possibilities:
-	 * 1. Last action was the creation of a Label with 'track'. 
-	 *    In this case just remove the last entry from 
+	 * 1. Last action was the creation of a Label with 'track'.
+	 *    In this case just remove the last entry from
 	 *    the labels-table and the versions-table
-	 * 
-	 * 2. Last action was an update.	
+	 *
+	 * 2. Last action was an update.
 	 *    In this case the program must remove the current
 	 *    version and restore the previous from that label.
-	 *    To do this: 
+	 *    To do this:
 	 *	- Remove the archived file. Rename the current
 	 *	  version to it's original name.
 	 *	- Restore the previous version.
@@ -443,7 +431,7 @@ func undoUpdate() {
 		}
 		if err := removeLastLine(VersionsTable); err != nil {
 			die(err)
-		}	
+		}
 	} else {
 		compressed_file := filepath.Join(ArchivesDir, lastEntry.id) + ".gz"
 		os.Remove(compressed_file)
@@ -459,7 +447,6 @@ func undoUpdate() {
 	}
 	return
 }
-
 
 func restoreLastVersion(label string) {
 	var id string
@@ -501,8 +488,8 @@ func removeLastLine(tableFile string) error {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
-	}	
-	
+	}
+
 	if err := scanner.Err(); err != nil {
 		return err
 	}
@@ -511,7 +498,7 @@ func removeLastLine(tableFile string) error {
 		return nil
 	}
 
-	lines = lines[ :len(lines)-1]
+	lines = lines[:len(lines)-1]
 	output, err := os.Create(tableFile)
 	if err != nil {
 		return err
@@ -525,7 +512,6 @@ func removeLastLine(tableFile string) error {
 	writer.Flush()
 	return nil
 }
-
 
 func readVersionsTable() []*Version {
 	var allVersions []*Version

@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-
 func calculateSha1(file string) (string, error) {
 	f, err := os.Open(file)
 	if err != nil {
@@ -26,12 +25,10 @@ func calculateSha1(file string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-
 func die(err error) {
 	fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 	os.Exit(1)
 }
-
 
 func readLabelsTable() map[string]string {
 	labels := make(map[string]string)
@@ -46,9 +43,8 @@ func readLabelsTable() map[string]string {
 		field := strings.Fields(scanner.Text())
 		labels[field[0]] = field[1]
 	}
-	return labels	
+	return labels
 }
-
 
 func writeToVersionsTable(v Version) {
 	f, err := os.OpenFile(VersionsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -59,13 +55,12 @@ func writeToVersionsTable(v Version) {
 	/*
 	 * Version entry order:
 	 * DATE TIME LABEL VERSION ORIGFILE FILE AUTHOR ID
-	*/
+	 */
 
-	fmt.Fprintf(f, "%s %s %s %d %s %s %s %s\n", 
+	fmt.Fprintf(f, "%s %s %s %d %s %s %s %s\n",
 		v.date, v.time, v.label, v.versionNumber, v.origFile, v.file, v.author, v.id)
 	f.Close()
 }
-
 
 func compress(inputFile, outputFile string) error {
 	inFile, err := os.Open(inputFile)
@@ -114,7 +109,6 @@ func decompress(inputFile string, outputFile string) error {
 	return nil
 }
 
-
 func getDate() string {
 	date := time.Now()
 	return date.Format("2006-01-02")
@@ -124,7 +118,7 @@ func getTime() string {
 	/*
 	 * This strange "15:04" is the golang way to
 	 * say hour and minutes, zero-padded
-	*/ 
+	 */
 	t := time.Now()
 	return t.Format("15:04")
 }

@@ -1,6 +1,2 @@
-- compress and decompress functions should be the same, using an arguments to change the behaviour
 - readLabelsTable names "labels" the map. But in fact it maps basenames, so the name is not good.
 - Use re readVersionsTable call
-- Stupid function gzipFile uses 3 arguments. The thirds is the ID, when it is not necesary. It should use only two: src, dst
-
-

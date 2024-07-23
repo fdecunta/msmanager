@@ -303,14 +303,13 @@ func printColumns(header string, file string) {
 }
 
 
-func askAuthorEmail() string {
+func askAuthorEmail() (email string) {
 	fmt.Printf("Author email: ")
-	var email string
 	_, err := fmt.Scan(&email)
 	if err != nil {
 		die(err)
 	}
-	return email
+	return
 }
 
 func askConfirmation(label string, file string, email string) bool {
@@ -348,9 +347,7 @@ func (v *Version) parse(s string) {
 	}
 }
 
-func getLastVersionNumber(label string) int {
-	LastVersion := 0
-
+func getLastVersionNumber(label string) (LastVersion int) {
 	f, err := os.Open(VersionsTable)
 	if err != nil {
 		die(err)
@@ -370,8 +367,7 @@ func getLastVersionNumber(label string) int {
 		fmt.Fprintln(os.Stderr, "reading versions-table in getLastVersionNumber():", err)
 		die(err)
 	}
-
-	return LastVersion
+	return 
 }
 
 

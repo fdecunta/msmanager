@@ -100,7 +100,7 @@ func trackLabel(args []string) {
 		author:        "none",
 		id:            "none",
 	})
-	fmt.Println("Label added.")
+	fmt.Printf("New label %q.\n", label)
 }
 
 func updateLabel(args []string) {
@@ -205,7 +205,6 @@ func restoreFile(args []string) {
 
 	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
 	restored_file := fmt.Sprintf("restored_%s", origFile)
-
 	if err := decompress(compressed_file, restored_file); err != nil {
 		die(err)
 	}
@@ -213,15 +212,15 @@ func restoreFile(args []string) {
 }
 
 func undoUpdate() {
-
 	/*
-	 * There are possibilities:
-	 * 1. Last action was the creation of a Label with 'track'.
-	 *    In this case just remove the last entry from
+	 * There are two possibilities:
+	 * 1. Last command was "track". In that case the
+	 *    last entry in versions-table would be a version 0.
+	 *    In this case just remove the last entries from
 	 *    the labels-table and the versions-table
 	 *
-	 * 2. Last action was an update.
-	 *    In this case the program must remove the current
+	 * 2. Last command was "update".
+	 *    In this case we must remove the current
 	 *    version and restore the previous from that label.
 	 *    To do this:
 	 *	- Remove the archived file. Rename the current
@@ -240,6 +239,7 @@ func undoUpdate() {
 		if err := removeLastLine(VersionsTable); err != nil {
 			die(err)
 		}
+		fmt.Printf("Remove label %q.\n", lastEntry.label)
 	} else {
 		compressed_file := filepath.Join(ArchivesDir, lastEntry.id) + ".gz"
 		os.Remove(compressed_file)
@@ -253,7 +253,6 @@ func undoUpdate() {
 			restoreLastVersion(lastEntry.label)
 		}
 	}
-	return
 }
 
 func usage() {

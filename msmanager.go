@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
+
 	"path/filepath"
 	"strings"
 )
@@ -17,17 +17,6 @@ const (
 	LabelsTable   = "msmanager-data/labels-table"
 	VersionsTable = "msmanager-data/versions-table"
 )
-
-type Version struct {
-	date          string
-	time          string
-	label         string
-	versionNumber int
-	origFile      string
-	file          string
-	author        string
-	id            string
-}
 
 func main() {
 	if len(os.Args) == 1 {
@@ -96,35 +85,27 @@ func initDB() {
 }
 
 func trackLabel(args []string) {
-
 	/*
 	 *  To start tracking a label, we need to add the label
-	 *  and basename to the labels-table, and create an entry
+	 *  and filename to use to the labels-table, and create an entry
 	 *   in the versions-table with the version number 0.
 	 */
 
 	if len(args) != 4 {
 		fmt.Fprintf(os.Stderr, "Missing arguments.\n")
 		usage()
+		return
 	}
+
 	label := args[2]
 	basename := args[3]
 
-	Labels := readLabelsTable()
-	if _, ok := Labels[label]; ok {
+	labelsMap := readLabelsMap()
+	if _, ok := labelsMap[label]; ok {
 		die(fmt.Errorf("Label %q already exists.", label))
 	}
 
-	f, err := os.OpenFile(LabelsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		die(err)
-	}
-
-	/* Labels-table has two columns: LABEL BASENAME */
-
-	fmt.Fprintf(f, "%s %s\n", label, basename)
-	f.Close()
-
+	writeToLabelsMap(label, basename)
 	writeToVersionsTable(Version{
 		date:          getDate(),
 		time:          getTime(),
@@ -135,21 +116,21 @@ func trackLabel(args []string) {
 		author:        "none",
 		id:            "none",
 	})
-
 	fmt.Println("Label added.")
 }
 
 func updateLabel(args []string) {
-
 	/*
 	 * Updates the version of LABEL using the file ORIGFILE
 	 *
-	 * - Calculate the sha1 of ORIGFILE and uses it as an ID.
-	 *   Check that this ID was not used (i.e., check that
-	 *   the file was not used)
-	 * - Compress the file into the ArchivesDir. The compressed
-	 *   file is named {ID}.gz
-	 * - Adds a new entry to the VersionsTable
+	 * The function must check that:
+	 * - The label exists
+	 * - The input file was not used before
+	 * - The previous version was not modified. If it was, don't delete it
+	 *
+	 * If everything is ok, archive the input file, rename the input file using 
+	 * the filename corresponding to the label, and add an entry to the 
+	 * versions table.
 	 */
 
 	if len(args) != 4 {
@@ -160,73 +141,69 @@ func updateLabel(args []string) {
 	label := args[2]
 	origFile := args[3]
 
-	Basenames := readLabelsTable()
-	// Versions := readVerionsTable()
-
-	basename, ok := Basenames[label]
+	labelsMap := readLabelsMap()
+	basename, ok := labelsMap[label]
 	if !ok {
 		die(fmt.Errorf("no such label %q", label))
 	}
 
-	id, err := calculateSha1(origFile)
-	if err != nil {
-		die(err)
-	}
-
-	if _, err := os.Stat(filepath.Join(ArchivesDir, id) + ".gz"); err == nil {
-		die(fmt.Errorf("file already used. \nId: %s", id))
-	}
-
+	id := calculateSha1(origFile)
+	newVersionNumber := getLastVersionNumber(label) + 1
+	newArchiveFile := filepath.Join(ArchivesDir, id) + ".gz"
+	newVersionFile := fmt.Sprintf("%s_%d_%s%s", basename, newVersionNumber, UserInitials, filepath.Ext(origFile))
 	email := askAuthorEmail()
+
 	if !askConfirmation(label, origFile, email) {
 		fmt.Println("Abort.")
 		return
 	}
 
-	if err = compress(origFile, filepath.Join(ArchivesDir, id)+".gz"); err != nil {
+	if _, err := os.Stat(newArchiveFile); err == nil {
+		die(fmt.Errorf("the same file was used before: \nId: %s", id))
+	}
+
+	if err := compress(origFile, newArchiveFile); err != nil {
 		die(err)
 	}
 
-	versionNumber := 1 + getLastVersionNumber(label)
-
-	newFile := fmt.Sprintf("%s_%d_%s%s", basename, versionNumber, UserInitials, filepath.Ext(origFile))
-	if err = os.Rename(origFile, newFile); err != nil {
+	if err := os.Rename(origFile, newVersionFile); err != nil {
 		die(err)
 	}
 
-	handlePreviousVersion(label)
+	if lastVersionFile, err := isLastVersionChanged(label); err != nil {
+		fmt.Println(err, "File not removed.")
+	} else {
+		if lastVersionFile != "none" {
+			os.Remove(lastVersionFile)
+		}
+	}		
 
 	writeToVersionsTable(Version{
 		date:          getDate(),
 		time:          getTime(),
 		label:         label,
-		versionNumber: versionNumber,
+		versionNumber: newVersionNumber,
 		origFile:      filepath.Base(origFile),
-		file:          newFile,
+		file:          newVersionFile,
 		author:        email,
 		id:            id,
 	})
-
-	fmt.Printf("Update: %s --> %s\n", origFile, newFile)
+	fmt.Printf("Update: %s --> %s\n", origFile, newVersionFile)
 }
 
-func handlePreviousVersion(label string) {
+
+func isLastVersionChanged(label string) (prevFile string, err error) {
+	/*
+	 * Check if the file of the previous version is equal to the one archived.
+	 * This is done by comparing the sha1 of the file with the id of the archive.
+	 * If the file was changed, don't remove it
+	 */
+
 	var prevID string
-	var prevFile string
-
-	f, err := os.Open(VersionsTable)
-	if err != nil {
-		die(err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		entry := new(Version)
-		entry.parse(scanner.Text())
-		if entry.label == label {
-			prevID = entry.id
-			prevFile = entry.file
+	for _, v := range readVersionsTable() {
+		if v.label == label {
+			prevID = v.id
+			prevFile = v.file
 		}
 	}
 
@@ -234,19 +211,10 @@ func handlePreviousVersion(label string) {
 		return
 	}
 
-	sha1, err := calculateSha1(prevFile)
-	if err != nil {
-		die(err)
-	}
-
-	if sha1 != prevID {
-		fmt.Println("WARNING: the previous version seems to be different from the file archived")
-		fmt.Printf("sha1 from %s is different to %s\n", prevFile, prevID)
-		fmt.Println("The file will not be removed")
-	} else {
-		os.Remove(prevFile)
-		fmt.Println("Previous version archived.")
-	}
+	if prevID != calculateSha1(prevFile) {
+		err = fmt.Errorf("WARNING: %s is different from the archived version.", prevFile)
+	} 
+	return 
 }
 
 func printHistory() {
@@ -255,74 +223,10 @@ func printHistory() {
 }
 
 func printLabels() {
-	header := "LABEL BASENAME"
+	header := "LABEL FILENAME"
 	printColumns(header, LabelsTable)
 }
 
-func printColumns(header string, file string) {
-	cmd := exec.Command("column", "-t")
-	cmd.Stdout = os.Stdout
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		die(err)
-	}
-	defer stdin.Close()
-
-	f, ferr := os.Open(file)
-	if ferr != nil {
-		die(err)
-	}
-	defer f.Close()
-
-	if err := cmd.Start(); err != nil {
-		die(err)
-	}
-
-	scanner := bufio.NewScanner(f)
-	fmt.Fprintln(stdin, header)
-	for scanner.Scan() {
-		fmt.Fprintln(stdin, scanner.Text())
-	}
-
-	if err = scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "reading file:", err)
-	}
-	if err := stdin.Close(); err != nil {
-		die(err)
-	}
-	if err := cmd.Wait(); err != nil {
-		die(err)
-	}
-}
-
-func askAuthorEmail() (email string) {
-	fmt.Printf("Author email: ")
-	_, err := fmt.Scan(&email)
-	if err != nil {
-		die(err)
-	}
-	return
-}
-
-func askConfirmation(label string, file string, email string) bool {
-	fmt.Println()
-	fmt.Printf("Label: %s\n", label)
-	fmt.Printf("File : %s\n", file)
-	fmt.Printf("Email: %s\n", email)
-	fmt.Printf("Confirm update? (y/n): ")
-
-	var ans string
-	_, err := fmt.Scan(&ans)
-	if err != nil {
-		die(err)
-	}
-
-	if ans == "y" || ans == "yes" {
-		return true
-	} else {
-		return false
-	}
-}
 
 func (v *Version) parse(s string) {
 	/*
@@ -338,27 +242,15 @@ func (v *Version) parse(s string) {
 	}
 }
 
-func getLastVersionNumber(label string) (LastVersion int) {
-	f, err := os.Open(VersionsTable)
-	if err != nil {
-		die(err)
-	}
-	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		entry := new(Version)
-		entry.parse(scanner.Text())
-		if entry.label == label && entry.versionNumber > LastVersion {
-			LastVersion = entry.versionNumber
+func getLastVersionNumber(label string) (lastVersion int) {
+	versionsTable := readVersionsTable()
+	for _, v := range versionsTable {
+		if v.label == "main" {
+			lastVersion = v.versionNumber
 		}
 	}
-
-	if err = scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "reading versions-table in getLastVersionNumber():", err)
-		die(err)
-	}
-	return
+	return 
 }
 
 func restoreFile(args []string) {
@@ -367,47 +259,29 @@ func restoreFile(args []string) {
 		usage()
 	}
 	id := args[2]
+	
+	var origFile string
+	for _, v := range readVersionsTable() {
+		if v.id == id {
+			origFile = v.origFile
+			break
+		}
+	}
+	if len(origFile) == 0 {
+		die(fmt.Errorf("unable to find ID %s", id))
+	}
+
 	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
-	restored_file := fmt.Sprintf("restored_%s", getOrigFilename(id))
+	restored_file := fmt.Sprintf("restored_%s", origFile)
+
 	if err := decompress(compressed_file, restored_file); err != nil {
 		die(err)
 	}
 	fmt.Printf("File restored: %s\n", restored_file)
 }
 
-func getOrigFilename(id string) string {
-	f, err := os.Open(VersionsTable)
-	if err != nil {
-		die(err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		v := new(Version)
-		v.parse(scanner.Text())
-		if v.id == id {
-			return v.origFile
-		}
-	}
-	fmt.Printf("Error: Can't find basename in versions history for %s\n", id)
-	os.Exit(1)
-	return ""
-}
 
 func undoUpdate() {
-	lastEntry := new(Version)
-
-	f, err := os.Open(VersionsTable)
-	if err != nil {
-		die(err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		lastEntry.parse(scanner.Text())
-	}
 
 	/*
 	 * There are possibilities:
@@ -424,6 +298,9 @@ func undoUpdate() {
 	 *	- Restore the previous version.
 	 *    Then delete the last entry from versions-table.
 	 */
+
+	versionsTable := readVersionsTable()
+	lastEntry := versionsTable[len(versionsTable) - 1]
 
 	if lastEntry.versionNumber == 0 {
 		if err := removeLastLine(LabelsTable); err != nil {
@@ -511,25 +388,4 @@ func removeLastLine(tableFile string) error {
 	}
 	writer.Flush()
 	return nil
-}
-
-func readVersionsTable() []*Version {
-	var allVersions []*Version
-
-	f, err := os.Open(VersionsTable)
-	if err != nil {
-		die(err)
-	}
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		v := new(Version)
-		v.parse(scanner.Text())
-		allVersions = append(allVersions, v)
-	}
-	if err := scanner.Err(); err != nil {
-		die(err)
-	}
-
-	return allVersions
 }

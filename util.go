@@ -7,22 +7,40 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
 
-func calculateSha1(file string) (string, error) {
+type Version struct {
+	date          string
+	time          string
+	label         string
+	versionNumber int
+	origFile      string
+	file          string
+	author        string
+	id            string
+}
+
+type Archive struct {
+	id   string
+	file   string
+}
+
+
+func calculateSha1(file string) (string) {
 	f, err := os.Open(file)
 	if err != nil {
-		return "", err
+		die(err)
 	}
 	defer f.Close()
 
 	h := sha1.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+		die(err)
 	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 func die(err error) {
@@ -30,7 +48,8 @@ func die(err error) {
 	os.Exit(1)
 }
 
-func readLabelsTable() map[string]string {
+
+func readLabelsMap() map[string]string {
 	labels := make(map[string]string)
 
 	f, err := os.Open(LabelsTable)
@@ -45,6 +64,38 @@ func readLabelsTable() map[string]string {
 	}
 	return labels
 }
+
+
+func writeToLabelsMap(label, basename string) {
+	f, err := os.OpenFile(LabelsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		die(err)
+	}
+	defer f.Close()
+
+	/* Labels-table has two columns: LABEL BASENAME */
+	fmt.Fprintf(f, "%s %s\n", label, basename)
+}
+
+
+func readVersionsTable() (versionsList []*Version) {
+	f, err := os.Open(VersionsTable)
+	if err != nil {
+		die(err)
+	}
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		v := new(Version)
+		v.parse(scanner.Text())
+		versionsList = append(versionsList, v)
+	}
+	if err := scanner.Err(); err != nil {
+		die(err)
+	}
+	return 
+}
+
 
 func writeToVersionsTable(v Version) {
 	f, err := os.OpenFile(VersionsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -121,4 +172,72 @@ func getTime() string {
 	 */
 	t := time.Now()
 	return t.Format("15:04")
+}
+
+
+func printColumns(header string, file string) {
+	cmd := exec.Command("column", "-t")
+	cmd.Stdout = os.Stdout
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		die(err)
+	}
+	defer stdin.Close()
+
+	f, ferr := os.Open(file)
+	if ferr != nil {
+		die(err)
+	}
+	defer f.Close()
+
+	if err := cmd.Start(); err != nil {
+		die(err)
+	}
+
+	scanner := bufio.NewScanner(f)
+	fmt.Fprintln(stdin, header)
+	for scanner.Scan() {
+		fmt.Fprintln(stdin, scanner.Text())
+	}
+
+	if err = scanner.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "reading file:", err)
+	}
+	if err := stdin.Close(); err != nil {
+		die(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		die(err)
+	}
+}
+
+func askAuthorEmail() (email string) {
+	fmt.Printf("Author email: ")
+	_, err := fmt.Scan(&email)
+	if err != nil {
+		die(err)
+	}
+	return
+}
+
+
+
+func askConfirmation(label string, file string, email string) bool {
+	fmt.Println()
+	fmt.Printf("Label: %s\n", label)
+	fmt.Printf("File : %s\n", file)
+	fmt.Printf("Email: %s\n", email)
+	fmt.Printf("Confirm update? (y/n): ")
+
+	var ans string
+	_, err := fmt.Scan(&ans)
+	if err != nil {
+		die(err)
+	}
+
+	if ans == "y" || ans == "yes" {
+		return true
+	} else {
+		return false
+	}
 }

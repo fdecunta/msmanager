@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const UserInitials = "FD"
@@ -61,7 +60,6 @@ func main() {
 		undoUpdate()
 	default:
 		usage()
-		return
 	}
 }
 
@@ -103,74 +101,63 @@ func initDB() {
 
 
 func trackLabel(args []string) {
+
+	/*
+	 *  To start tracking a label, we need to add the label
+	 *  and basename to the labels-table, and create an entry
+	 *   in the versions-table with the version number 0.
+	 */
+
 	if len(args) != 4 {
 		fmt.Fprintf(os.Stderr, "Missing arguments.\n")
 		usage()
 	}
-
 	label := args[2]
 	basename := args[3]
 
 	Labels := readLabelsTable()
-	if _, exists := Labels[label]; exists {
+	if _, ok := Labels[label]; ok {
 		die(fmt.Errorf("Label %q already exists.", label))
 	}
-
-	/*
-	 *  Starts tracking a label with a given basename.
-	 *  Adds the label and basename to the labels-table
-	 *  and creates its first entry in the versions-table.
-	 */
 
 	f, err := os.OpenFile(LabelsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		die(err)
 	}
-	/*
-	 * Labels-table has two columns: LABEL BASENAME
-	 */
+
+	/* Labels-table has two columns: LABEL BASENAME */
+
 	fmt.Fprintf(f, "%s %s\n", label, basename)
 	f.Close()
 
 	writeToVersionsTable(Version{
-		date:      getDate(),
-		time:      getTime(),
-		label:     label,
+		date:            getDate(),
+		time:            getTime(),
+		label:           label,
 		versionNumber:   0,
-		origFile:  "none",
-		file:      "none",
-		author:    "none",
-		id:        "0",
+		origFile:        "none",
+		file:            "none",
+		author:          "none",
+		id:              "none",
 		})
 
 	fmt.Println("Label added.")
 }
 
-func fileExists(filePath string) bool {
-	if _, err := os.Stat(filePath); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-	return true
-}
-
-func getDate() string {
-	date := time.Now()
-	return date.Format("2006-01-02")
-}
-
-func getTime() string {
-	/*
-	 * This strange "15:04" is the golang way to
-	 * say hour and minutes, zero-padded
-	*/ 
-	t := time.Now()
-	return t.Format("15:04")
-}
-
 
 func updateLabel(args []string) {
+
+	/*
+	 * Updates the version of LABEL using the file ORIGFILE
+	 * 
+	 * - Calculate the sha1 of ORIGFILE and uses it as an ID.
+	 *   Check that this ID was not used (i.e., check that 
+	 *   the file was not used)
+	 * - Compress the file into the ArchivesDir. The compressed
+	 *   file is named {ID}.gz
+	 * - Adds a new entry to the VersionsTable
+	 */	
+
 	if len(args) != 4 {
 		fmt.Println("Missing arguments")
 		usage()
@@ -178,17 +165,6 @@ func updateLabel(args []string) {
 
 	label := args[2]
 	origFile := args[3]
-
-	/*
-	 * Updates the version of LABEL using the file ORIGFILE
-	 * 
-	 * - Calculates the sha1 of FILE and uses it as an ID.
-	 *   Check that this ID was not used (i.e., check if 
-	 *   the file was not used)
-	 * - Compress the file into the ArchivesDir. The compressed
-	 *   file is named {ID}.gz
-	 * - Adds a new entry to the VersionsTable
-	 */	
 
 	Basenames := readLabelsTable()
 	// Versions := readVerionsTable()
@@ -219,27 +195,25 @@ func updateLabel(args []string) {
 
 	versionNumber := 1 + getLastVersionNumber(label)
 
-
 	newFile := fmt.Sprintf("%s_%d_%s%s", basename, versionNumber, UserInitials, filepath.Ext(origFile))
-	if err = os.Rename(origFile, newFile); err != nil {
-		
+	if err = os.Rename(origFile, newFile); err != nil {		
 		die(err)
-	} else {
-		fmt.Printf("Update: %s --> %s\n", origFile, newFile)
-	}
+	} 
 
 	handlePreviousVersion(label)
 
 	writeToVersionsTable(Version{
-		date:     getDate(),
-		time:     getTime(),
-		label:    label,
+		date:           getDate(),
+		time:           getTime(),
+		label:          label,
 		versionNumber:  versionNumber,
-		origFile: filepath.Base(origFile),
-		file:     newFile,
-		author:   email,
-		id:       id,	
+		origFile:       filepath.Base(origFile),
+		file:           newFile,
+		author:         email,
+		id:             id,	
 		})
+
+	fmt.Printf("Update: %s --> %s\n", origFile, newFile)
 }
 
 func handlePreviousVersion(label string) {
@@ -326,24 +300,6 @@ func printColumns(header string, file string) {
 	if err := cmd.Wait(); err != nil {
 		die(err)
 	}
-}
-
-
-func getBasename(label string) string {
-	f, err := os.Open(LabelsTable)
-	if err != nil {
-		die(err)		
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		if strings.HasPrefix(scanner.Text(), label) {
-			fields := strings.Fields(scanner.Text())
-			return fields[1]
-		}
-	}
-	return ""
 }
 
 

@@ -8,7 +8,29 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 )
+
+
+func calculateSha1(file string) (string, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha1.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+
+func die(err error) {
+	fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+	os.Exit(1)
+}
 
 
 func readLabelsTable() map[string]string {
@@ -45,27 +67,6 @@ func writeToVersionsTable(v Version) {
 }
 
 
-func calculateSha1(file string) (string, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	h := sha1.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
-}
-
-
-func die(err error) {
-	fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-	os.Exit(1)
-}
-
-
 func compress(inputFile, outputFile string) error {
 	inFile, err := os.Open(inputFile)
 	if err != nil {
@@ -85,7 +86,6 @@ func compress(inputFile, outputFile string) error {
 	if _, err := io.Copy(gzipWriter, inFile); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -96,21 +96,35 @@ func decompress(inputFile string, outputFile string) error {
 	}
 	defer inFile.Close()
 
-	gzipReader, err := gzip.NewReader(inFile)
-	if err != nil {
-		return err
-	}
-	defer gzipReader.Close()
-
 	outFile, err := os.Create(outputFile)
 	if err != nil {
 		return err
 	}
 	defer outFile.Close()
 
+	gzipReader, err := gzip.NewReader(inFile)
+	if err != nil {
+		return err
+	}
+	defer gzipReader.Close()
+
 	if _, err := io.Copy(outFile, gzipReader); err != nil {
 		return err
 	}
-
 	return nil
+}
+
+
+func getDate() string {
+	date := time.Now()
+	return date.Format("2006-01-02")
+}
+
+func getTime() string {
+	/*
+	 * This strange "15:04" is the golang way to
+	 * say hour and minutes, zero-padded
+	*/ 
+	t := time.Now()
+	return t.Format("15:04")
 }

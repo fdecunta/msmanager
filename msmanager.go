@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -16,6 +17,9 @@ const (
 )
 
 func main() {
+	log.SetPrefix("msmanager: ")
+	log.SetFlags(0)
+
 	if len(os.Args) == 1 {
 		usage()
 		return
@@ -54,14 +58,14 @@ func initDB() {
 	for _, d := range dirs {
 		err := os.Mkdir(d, 0755)
 		if err != nil {
-			die(err)
+			log.Fatal(err)
 		}
 	}
 
 	for _, f := range files {
 		fptr, err := os.Create(f)
 		if err != nil {
-			die(err)
+			log.Fatal(err)
 		}
 		fptr.Close()
 	}
@@ -86,7 +90,7 @@ func trackLabel(args []string) {
 
 	labelsMap := readLabelsMap()
 	if _, ok := labelsMap[label]; ok {
-		die(fmt.Errorf("Label %q already exists.", label))
+		log.Fatal(fmt.Errorf("Label %q already exists.", label))
 	}
 
 	writeToLabelsMap(label, basename)
@@ -128,7 +132,7 @@ func updateLabel(args []string) {
 	labelsMap := readLabelsMap()
 	basename, ok := labelsMap[label]
 	if !ok {
-		die(fmt.Errorf("no such label %q", label))
+		log.Fatal(fmt.Errorf("no such label %q", label))
 	}
 
 	id := calculateSha1(origFile)
@@ -143,15 +147,15 @@ func updateLabel(args []string) {
 	}
 
 	if _, err := os.Stat(newArchiveFile); err == nil {
-		die(fmt.Errorf("the same file was used before: \nId: %s", id))
+		log.Fatal(fmt.Errorf("the same file was used before: \nId: %s", id))
 	}
 
 	if err := compress(origFile, newArchiveFile); err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 
 	if err := os.Rename(origFile, newVersionFile); err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 
 	if lastVersionFile, err := isLastVersionChanged(label); err != nil {
@@ -200,13 +204,13 @@ func restoreFile(args []string) {
 		}
 	}
 	if len(origFile) == 0 {
-		die(fmt.Errorf("unable to find ID %s", id))
+		log.Fatal(fmt.Errorf("unable to find ID %s", id))
 	}
 
 	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
 	restored_file := fmt.Sprintf("restored_%s", origFile)
 	if err := decompress(compressed_file, restored_file); err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 	fmt.Printf("File restored: %s\n", restored_file)
 }
@@ -234,10 +238,10 @@ func undoUpdate() {
 
 	if lastEntry.versionNumber == 0 {
 		if err := removeLastLine(LabelsTable); err != nil {
-			die(err)
+			log.Fatal(err)
 		}
 		if err := removeLastLine(VersionsTable); err != nil {
-			die(err)
+			log.Fatal(err)
 		}
 		fmt.Printf("Remove label %q.\n", lastEntry.label)
 	} else {
@@ -247,7 +251,7 @@ func undoUpdate() {
 		fmt.Printf("Rename: %s ---> %s\n", lastEntry.file, lastEntry.origFile)
 
 		if err := removeLastLine(VersionsTable); err != nil {
-			die(err)
+			log.Fatal(err)
 		}
 		if lastEntry.versionNumber > 1 {
 			restoreLastVersion(lastEntry.label)

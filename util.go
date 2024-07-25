@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha1"
 	"fmt"
+	"log"
 	"io"
 	"os"
 	"os/exec"
@@ -28,20 +29,15 @@ type Version struct {
 func calculateSha1(file string) (string) {
 	f, err := os.Open(file)
 	if err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 	defer f.Close()
 
 	h := sha1.New()
 	if _, err := io.Copy(h, f); err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
-func die(err error) {
-	fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-	os.Exit(1)
 }
 
 
@@ -50,7 +46,7 @@ func readLabelsMap() map[string]string {
 
 	f, err := os.Open(LabelsTable)
 	if err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 
 	scanner := bufio.NewScanner(f)
@@ -65,7 +61,7 @@ func readLabelsMap() map[string]string {
 func writeToLabelsMap(label, basename string) {
 	f, err := os.OpenFile(LabelsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 	defer f.Close()
 
@@ -77,7 +73,7 @@ func writeToLabelsMap(label, basename string) {
 func readVersionsTable() (versionsList []*Version) {
 	f, err := os.Open(VersionsTable)
 	if err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 
 	scanner := bufio.NewScanner(f)
@@ -87,7 +83,7 @@ func readVersionsTable() (versionsList []*Version) {
 		versionsList = append(versionsList, v)
 	}
 	if err := scanner.Err(); err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 	return 
 }
@@ -96,7 +92,7 @@ func readVersionsTable() (versionsList []*Version) {
 func writeToVersionsTable(v Version) {
 	f, err := os.OpenFile(VersionsTable, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 
 	/*
@@ -176,18 +172,18 @@ func printColumns(header string, file string) {
 	cmd.Stdout = os.Stdout
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 	defer stdin.Close()
 
-	f, ferr := os.Open(file)
-	if ferr != nil {
-		die(err)
+	f, err := os.Open(file)
+	if err != nil {
+		log.Fatal(err)
 	}
 	defer f.Close()
 
 	if err := cmd.Start(); err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 
 	scanner := bufio.NewScanner(f)
@@ -200,10 +196,10 @@ func printColumns(header string, file string) {
 		fmt.Fprintln(os.Stderr, "reading file:", err)
 	}
 	if err := stdin.Close(); err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 	if err := cmd.Wait(); err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 }
 
@@ -211,7 +207,7 @@ func askAuthorEmail() (email string) {
 	fmt.Printf("Author email: ")
 	_, err := fmt.Scan(&email)
 	if err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 	return
 }
@@ -228,7 +224,7 @@ func askConfirmation(label string, file string, email string) bool {
 	var ans string
 	_, err := fmt.Scan(&ans)
 	if err != nil {
-		die(err)
+		log.Fatal(err)
 	}
 
 	if ans == "y" || ans == "yes" {
@@ -293,7 +289,7 @@ func isLastVersionChanged(label string) (prevFile string, err error) {
 func restoreLastVersion(label string) {
 	var id string
 	var filename string
-	for _, version := range readVersionsTable()
+	for _, version := range readVersionsTable() {
 		if version.label == label {
 			id = version.id
 			filename = version.file
@@ -301,8 +297,8 @@ func restoreLastVersion(label string) {
 	}
 
 	compressed_file := filepath.Join(ArchivesDir, id) + ".gz"
-	if err = decompress(compressed_file, filename); err != nil {
-		die(err)
+	if err := decompress(compressed_file, filename); err != nil {
+		log.Fatal(err)
 	}
 	fmt.Printf("Restore previous version: %s\n", filename)
 	return

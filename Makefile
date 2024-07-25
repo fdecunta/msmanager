@@ -1,6 +1,6 @@
 DST = /usr/local/bin
 
-msmanager: msmanager.go
+msmanager: msmanager.go util.go
 	go build msmanager.go util.go
 
 install: msmanager
